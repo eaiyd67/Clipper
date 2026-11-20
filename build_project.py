@@ -1,25 +1,47 @@
 #!/usr/bin/env python3
 """
 ClipPulse Android Project Generator
-Generates all Gradle, AndroidManifest, XML resource, and Kotlin source files
-for zero-PC compilation on GitHub Actions.
+Generates the complete Gradle, Manifest, XML resource, and Kotlin Jetpack Compose
+source tree ready for zero-PC compilation on GitHub Actions.
 """
 
 import os
+import sys
 
-FILES = {}
 
-# ==============================================================================
-# 1. GRADLE & BUILD CONFIGURATION
-# ==============================================================================
+def write_file(path: str, content: str) -> None:
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(content.lstrip("\n"))
+    print(f"Wrote: {path}")
 
-FILES["gradle.properties"] = r'''org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
+
+def generate_local_properties() -> None:
+    sdk_dir = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
+    if sdk_dir:
+        escaped = sdk_dir.replace("\\", "\\\\")
+        write_file("local.properties", f"sdk.dir={escaped}\n")
+    else:
+        print("Note: ANDROID_HOME / ANDROID_SDK_ROOT not set; skipped local.properties.")
+
+
+def generate_gradle_files() -> None:
+    write_file(
+        "gradle.properties",
+        """
+org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
 android.useAndroidX=true
 kotlin.code.style=official
 android.nonTransitiveRClass=true
-'''
+""",
+    )
 
-FILES["settings.gradle.kts"] = r'''pluginManagement {
+    write_file(
+        "settings.gradle.kts",
+        """
+pluginManagement {
     repositories {
         google()
         mavenCentral()
@@ -39,16 +61,32 @@ dependencyResolutionManagement {
 
 rootProject.name = "ClipPulse"
 include(":app")
-'''
+""",
+    )
 
-FILES["build.gradle.kts"] = r'''plugins {
+    write_file(
+        "build.gradle.kts",
+        """
+plugins {
     id("com.android.application") version "8.7.2" apply false
     id("org.jetbrains.kotlin.android") version "2.0.21" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
 }
-'''
+""",
+    )
 
-FILES["app/build.gradle.kts"] = r'''plugins {
+    write_file(
+        "app/proguard-rules.pro",
+        """
+-keep class com.yausername.** { *; }
+-dontwarn com.yausername.**
+""",
+    )
+
+    write_file(
+        "app/build.gradle.kts",
+        """
+plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
@@ -78,6 +116,9 @@ android {
                 "proguard-rules.pro"
             )
         }
+        debug {
+            isMinifyEnabled = false
+        }
     }
 
     compileOptions {
@@ -93,11 +134,6 @@ android {
         compose = true
     }
 
-    lint {
-        abortOnError = false
-        checkReleaseBuilds = false
-    }
-
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -106,19 +142,27 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
 }
 
 dependencies {
-    implementation(platform("androidx.compose:compose-bom:2024.10.01"))
+    val composeBom = platform("androidx.compose:compose-bom:2024.10.01")
+    implementation(composeBom)
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-graphics")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
     implementation("androidx.compose.material:material-icons-extended")
+    debugImplementation("androidx.compose.ui:ui-tooling")
 
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.core:core-ktx:1.13.1")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
@@ -130,20 +174,16 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:library:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:common:0.18.1")
-
-    debugImplementation("androidx.compose.ui:ui-tooling")
 }
-'''
+""",
+    )
 
-FILES["app/proguard-rules.pro"] = r'''-keep class com.yausername.** { *; }
--dontwarn com.yausername.**
-'''
 
-# ==============================================================================
-# 2. MANIFEST & XML RESOURCES
-# ==============================================================================
-
-FILES["app/src/main/AndroidManifest.xml"] = r'''<?xml version="1.0" encoding="utf-8"?>
+def generate_manifest_and_resources() -> None:
+    write_file(
+        "app/src/main/AndroidManifest.xml",
+        """
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -167,8 +207,8 @@ FILES["app/src/main/AndroidManifest.xml"] = r'''<?xml version="1.0" encoding="ut
         android:allowBackup="true"
         android:extractNativeLibs="true"
         android:icon="@drawable/ic_launcher"
-        android:roundIcon="@drawable/ic_launcher"
         android:label="@string/app_name"
+        android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.ClipPulse"
         android:usesCleartextTraffic="true">
@@ -191,160 +231,159 @@ FILES["app/src/main/AndroidManifest.xml"] = r'''<?xml version="1.0" encoding="ut
 
         <service
             android:name=".service.ClipExportService"
-            android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
     </application>
-</manifest>
-'''
 
-FILES["app/src/main/res/drawable/ic_launcher.xml"] = r'''<?xml version="1.0" encoding="utf-8"?>
+</manifest>
+""",
+    )
+
+    write_file(
+        "app/src/main/res/drawable/ic_launcher.xml",
+        """
+<?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
     <path
         android:fillColor="#0B0B0F"
         android:pathData="M0,0h108v108h-108z" />
+
     <path
         android:fillColor="#16161D"
-        android:pathData="M24,14h60a10,10 0 0 1 10,10v60a10,10 0 0 1 -10,10h-60a10,10 0 0 1 -10,-10v-60a10,10 0 0 1 10,-10z" />
+        android:pathData="M24,18h60c3.31,0 6,2.69 6,6v60c0,3.31 -2.69,6 -6,6h-60c-3.31,0 -6,-2.69 -6,-6v-60c0,-3.31 2.69,-6 6,-6z" />
+
     <path
         android:fillColor="#6366F1"
-        android:pathData="M41,34L73,54L41,74Z" />
-    <path
-        android:strokeColor="#06B6D4"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M24,78L34,78L40,66L48,84L56,60L64,78L84,78" />
-</vector>
-'''
+        android:pathData="M26,28h56v52h-56z"
+        android:fillAlpha="0.16" />
 
-FILES["app/src/main/res/values/strings.xml"] = r'''<?xml version="1.0" encoding="utf-8"?>
+    <path
+        android:fillColor="#6366F1"
+        android:pathData="M22,52h11l6,-18l8,36l8,-28l6,16l5,-6h20v6h-17l-9,11l-7,-18l-8,28l-8,-35l-4,14h-11z" />
+
+    <path
+        android:fillColor="#F59E0B"
+        android:pathData="M78,24l2.2,4.8l5.3,0.6l-3.9,3.6l1.1,5.2l-4.7,-2.6l-4.7,2.6l1.1,-5.2l-3.9,-3.6l5.3,-0.6z" />
+
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M24,24h12v4h-8v8h-4z" />
+
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M84,84h-12v-4h8v-8h4z" />
+</vector>
+""",
+    )
+
+    write_file(
+        "app/src/main/res/values/strings.xml",
+        """
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ClipPulse</string>
 </resources>
-'''
+""",
+    )
 
-FILES["app/src/main/res/values/themes.xml"] = r'''<?xml version="1.0" encoding="utf-8"?>
+    write_file(
+        "app/src/main/res/values/themes.xml",
+        """
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.ClipPulse" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#0B0B0F</item>
         <item name="android:statusBarColor">#0B0B0F</item>
         <item name="android:navigationBarColor">#0B0B0F</item>
+        <item name="android:windowBackground">#0B0B0F</item>
     </style>
 </resources>
-'''
+""",
+    )
 
-# ==============================================================================
-# 3. APPLICATION & MAIN ACTIVITY
-# ==============================================================================
 
-FILES["app/src/main/java/com/clippulse/studio/ClipPulseApp.kt"] = r'''package com.clippulse.studio
+def generate_kotlin_sources() -> None:
+    base = "app/src/main/java/com/clippulse/studio"
+
+    write_file(
+        f"{base}/ClipPulseApp.kt",
+        """
+package com.clippulse.studio
 
 import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
-import android.content.Context
 import android.os.Build
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.youtubedl_android.YoutubeDL
+import com.clippulse.studio.engine.EngineInitializer
+import com.clippulse.studio.service.ClipExportService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 class ClipPulseApp : Application() {
+    private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         appScope.launch {
-            ensureEnginesInitialized(applicationContext)
+            EngineInitializer.ensureInitialized(this@ClipPulseApp)
         }
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
-                EXPORT_CHANNEL_ID,
-                "ClipPulse Export Service",
+                ClipExportService.CHANNEL_ID,
+                "ClipPulse Exports",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Shows real-time progress while downloading and exporting video clips"
+                description = "Background section download and gallery export progress"
             }
             val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
         }
     }
-
-    companion object {
-        const val EXPORT_CHANNEL_ID = "clippulse_export_channel"
-        private val appScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val initMutex = Mutex()
-
-        @Volatile
-        private var enginesReady = false
-
-        suspend fun ensureEnginesInitialized(context: Context): Result<Unit> {
-            if (enginesReady) return Result.success(Unit)
-            return initMutex.withLock {
-                if (enginesReady) return Result.success(Unit)
-                runCatching {
-                    YoutubeDL.getInstance().init(context.applicationContext)
-                    FFmpeg.getInstance().init(context.applicationContext)
-                    enginesReady = true
-                }
-            }
-        }
-    }
 }
-'''
+""",
+    )
 
-FILES["app/src/main/java/com/clippulse/studio/MainActivity.kt"] = r'''package com.clippulse.studio
+    write_file(
+        f"{base}/MainActivity.kt",
+        """
+package com.clippulse.studio
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.graphics.Color
-import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.core.content.ContextCompat
-import com.clippulse.studio.engine.TimeUtils
-import com.clippulse.studio.ui.ClipPulseScreen
-import com.clippulse.studio.ui.ClipPulseViewModel
+import com.clippulse.studio.ui.ClipPulseStudioScreen
 import com.clippulse.studio.ui.theme.ClipPulseTheme
+import com.clippulse.studio.viewmodel.ClipPulseViewModel
 
 class MainActivity : ComponentActivity() {
-
     private val viewModel: ClipPulseViewModel by viewModels()
 
-    private val permissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { _ -> }
-
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
         enableEdgeToEdge(
-            statusBarStyle = SystemBarStyle.dark(Color.parseColor("#0B0B0F")),
-            navigationBarStyle = SystemBarStyle.dark(Color.parseColor("#0B0B0F"))
+            statusBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#0B0B0F")),
+            navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.parseColor("#0B0B0F"))
         )
-        requestRuntimePermissions()
+        super.onCreate(savedInstanceState)
         handleIncomingIntent(intent)
 
         setContent {
             ClipPulseTheme {
-                ClipPulseScreen(viewModel = viewModel)
+                ClipPulseStudioScreen(viewModel = viewModel)
             }
         }
     }
@@ -355,100 +394,50 @@ class MainActivity : ComponentActivity() {
         handleIncomingIntent(intent)
     }
 
-    private fun handleIncomingIntent(intent: Intent?) {
-        if (intent?.action == Intent.ACTION_SEND && intent.type == "text/plain") {
-            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-            val extracted = TimeUtils.extractUrlFromSharedText(sharedText)
-            if (extracted.isNotBlank()) {
-                viewModel.onUrlChanged(extracted)
+    private fun handleIncomingIntent(incoming: Intent?) {
+        if (incoming?.action == Intent.ACTION_SEND && incoming.type == "text/plain") {
+            val sharedText = incoming.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
+            val urlRegex = Regex("""https?://\\S+""")
+            val extractedUrl = urlRegex.find(sharedText)?.value?.trimEnd('.', ',', ')', ']') ?: sharedText.trim()
+            if (extractedUrl.isNotBlank()) {
+                viewModel.onSharedUrlReceived(extractedUrl)
             }
         }
     }
-
-    private fun requestRuntimePermissions() {
-        val needed = mutableListOf<String>()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                needed.add(Manifest.permission.POST_NOTIFICATIONS)
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_MEDIA_VIDEO)
-                != PackageManager.PERMISSION_GRANTED
-            ) {
-                needed.add(Manifest.permission.READ_MEDIA_VIDEO)
-            }
-        } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_EXTERNAL_STORAGE)
-            != PackageManager.PERMISSION_GRANTED
-        ) {
-            needed.add(Manifest.permission.READ_EXTERNAL_STORAGE)
-        }
-
-        if (needed.isNotEmpty()) {
-            permissionLauncher.launch(needed.toTypedArray())
-        }
-    }
 }
-'''
+""",
+    )
 
-# ==============================================================================
-# 4. DOMAIN MODELS & DATA REPOSITORY
-# ==============================================================================
+    write_file(
+        f"{base}/model/ClipModels.kt",
+        """
+package com.clippulse.studio.model
 
-FILES["app/src/main/java/com/clippulse/studio/model/Models.kt"] = r'''package com.clippulse.studio.model
+import androidx.compose.ui.graphics.Color
+import com.clippulse.studio.ui.theme.ColorCrimson
+import com.clippulse.studio.ui.theme.ColorCyan
+import com.clippulse.studio.ui.theme.ColorEmerald
+import com.clippulse.studio.ui.theme.ColorGold
+import com.clippulse.studio.ui.theme.ColorPurple
+import java.util.Locale
 
-import java.util.UUID
-
-enum class DetectionMode(val label: String, val subtitle: String) {
-    ALL("All Signals", "Full multi-signal consensus scan"),
-    HEATMAP("Most Replayed", "YouTube viewer replay spikes"),
-    SUPER_CHAT("Super Chats", "RAM-safe live chat donor & reaction sync"),
-    CHAT_HYPE("Chat Hype", "10s chat velocity & laughter spikes"),
-    AUDIO_PEAK("Audio Peaks", "Waveform energy scanner for VODs & local files"),
-    AI_VIRAL("AI Viral & Search", "Viral hook scoring or custom prompt search")
-}
-
-enum class SignalType(val label: String) {
-    HEATMAP("Heatmap"),
-    SUPER_CHAT("Super Chat"),
-    CHAT_HYPE("Chat Hype"),
-    AUDIO_PEAK("Audio Peak"),
-    AI_PICK("AI Pick")
-}
-
-enum class AiProviderPreset(
+enum class AiPreset(
     val displayName: String,
     val defaultBaseUrl: String,
     val defaultModel: String
 ) {
-    DEEPSEEK(
-        displayName = "DeepSeek",
-        defaultBaseUrl = "https://api.deepseek.com/v1",
-        defaultModel = "deepseek-chat"
-    ),
-    GEMINI(
-        displayName = "Gemini",
-        defaultBaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai",
-        defaultModel = "gemini-2.5-flash"
-    ),
-    OPENROUTER(
-        displayName = "OpenRouter",
-        defaultBaseUrl = "https://openrouter.ai/api/v1",
-        defaultModel = "google/gemini-2.5-flash"
-    ),
-    CUSTOM(
-        displayName = "Custom",
-        defaultBaseUrl = "https://api.openai.com/v1",
-        defaultModel = "gpt-4o-mini"
-    )
+    DEEPSEEK("DeepSeek", "https://api.deepseek.com/v1", "deepseek-chat"),
+    GEMINI("Gemini", "https://generativelanguage.googleapis.com/v1beta/openai", "gemini-2.5-flash"),
+    OPENROUTER("OpenRouter", "https://openrouter.ai/api/v1", "google/gemini-2.5-flash"),
+    CUSTOM("Custom", "https://api.openai.com/v1", "gpt-4o-mini")
 }
 
-data class AiSettings(
-    val preset: AiProviderPreset = AiProviderPreset.DEEPSEEK,
-    val baseUrl: String = AiProviderPreset.DEEPSEEK.defaultBaseUrl,
-    val primaryApiKey: String = "",
-    val backupApiKeys: List<String> = emptyList(),
-    val selectedModel: String = AiProviderPreset.DEEPSEEK.defaultModel,
+data class AiConfig(
+    val preset: AiPreset = AiPreset.DEEPSEEK,
+    val baseUrl: String = AiPreset.DEEPSEEK.defaultBaseUrl,
+    val primaryKey: String = "",
+    val backupKeys: List<String> = emptyList(),
+    val selectedModel: String = AiPreset.DEEPSEEK.defaultModel,
     val availableModels: List<String> = listOf(
         "deepseek-chat",
         "deepseek-reasoner",
@@ -457,14 +446,55 @@ data class AiSettings(
         "gpt-4o-mini"
     ),
     val smartPeakOnly: Boolean = true,
-    val offlineMode: Boolean = false
-)
+    val offlineNoAiMode: Boolean = false
+) {
+    fun orderedKeys(): List<String> {
+        return (listOf(primaryKey.trim()) + backupKeys.map { it.trim() })
+            .filter { it.isNotBlank() }
+            .distinct()
+    }
 
-sealed interface AiConnectionState {
-    data object Disconnected : AiConnectionState
-    data object Testing : AiConnectionState
-    data class Connected(val latencyMs: Long, val model: String) : AiConnectionState
-    data class Error(val message: String) : AiConnectionState
+    fun canUseAi(): Boolean {
+        return !offlineNoAiMode && orderedKeys().isNotEmpty() && baseUrl.isNotBlank()
+    }
+}
+
+sealed class AiConnectionState {
+    data object Idle : AiConnectionState()
+    data object Testing : AiConnectionState()
+    data class Connected(val latencyMs: Long, val model: String) : AiConnectionState()
+    data class Error(val message: String) : AiConnectionState()
+}
+
+enum class DetectionMode(val label: String) {
+    SMART_ALL("All Signals"),
+    HEATMAP("Most Replayed"),
+    SUPER_CHAT("Super Chats"),
+    CHAT_HYPE("Chat Hype"),
+    AUDIO_PEAKS("Audio Peaks"),
+    AI_CUSTOM("AI Custom Prompt")
+}
+
+enum class SignalSource(val label: String, val badgeColor: Color) {
+    SUPER_CHAT("Super Chat", ColorGold),
+    HEATMAP("Heatmap", ColorCrimson),
+    CHAT_HYPE("Chat Hype", ColorPurple),
+    AI_PICK("AI Pick", ColorCyan),
+    AUDIO_PEAK("Audio Peak", ColorEmerald)
+}
+
+enum class SuperChatThreshold(val label: String, val minUsd: Double) {
+    ALL("All", 0.0),
+    PLUS_5("$5+", 5.0),
+    PLUS_10("$10+", 10.0),
+    PLUS_25("$25+", 25.0)
+}
+
+enum class PaddingPreset(val label: String, val beforeSec: Double, val afterSec: Double) {
+    TIGHT("-2s / +3s", 2.0, 3.0),
+    BALANCED("-3s / +5s", 3.0, 5.0),
+    WIDE("-5s / +8s", 5.0, 8.0),
+    CONTEXT("-8s / +12s", 8.0, 12.0)
 }
 
 data class HeatmapPoint(
@@ -473,33 +503,31 @@ data class HeatmapPoint(
     val value: Double
 )
 
-data class TranscriptSegment(
+data class SuperChatEvent(
+    val donor: String,
+    val amountDisplay: String,
+    val usdApprox: Double,
+    val currency: String,
+    val message: String,
+    val offsetSec: Double
+)
+
+data class TranscriptCue(
     val startSec: Double,
     val endSec: Double,
     val text: String
 )
 
-data class SuperChatEvent(
-    val id: String = UUID.randomUUID().toString(),
-    val authorName: String,
-    val amountText: String,
-    val amountNumeric: Double,
-    val currency: String,
-    val message: String,
-    val offsetSec: Double,
-    val isSticker: Boolean = false
-)
-
 data class ClipCandidate(
-    val id: String = UUID.randomUUID().toString(),
+    val id: String,
     val title: String,
     val startSec: Double,
     val endSec: Double,
-    val score: Int,
-    val signals: List<SignalType>,
-    val isMultiSignal: Boolean = false,
+    val hypeScore: Int,
+    val signals: List<SignalSource>,
+    val isMultiSignal: Boolean,
     val superChat: SuperChatEvent? = null,
-    val transcriptSnippet: String = "",
+    val transcriptQuote: String = "",
     val reason: String = "",
     val selected: Boolean = true
 ) {
@@ -508,129 +536,132 @@ data class ClipCandidate(
 }
 
 data class VideoAnalysisResult(
-    val sourceInput: String,
+    val sourceUrlOrUri: String,
     val isLocalFile: Boolean,
     val localFilePath: String?,
-    val title: String,
+    val videoTitle: String,
     val channelName: String,
     val durationSec: Double,
     val heatmap: List<HeatmapPoint>,
     val clips: List<ClipCandidate>,
-    val transcriptCount: Int,
-    val superChatCount: Int
+    val hasLiveChat: Boolean,
+    val hasTranscript: Boolean,
+    val analysisSummary: String
 )
 
-data class ExportConfig(
-    val useVerticalCrop: Boolean = false,
-    val includeTxtSidecar: Boolean = true,
-    val startPaddingSec: Int = 3,
-    val endPaddingSec: Int = 5
-)
+enum class ExportMode(val label: String) {
+    FAST_COPY("Fast Cut"),
+    VERTICAL_CROP("9:16 Crop")
+}
 
-data class ExportProgressState(
-    val isExporting: Boolean = false,
-    val currentIndex: Int = 0,
-    val totalCount: Int = 0,
-    val currentTitle: String = "",
-    val fraction: Float = 0f,
-    val statusMessage: String = "",
-    val completedTitles: List<String> = emptyList(),
-    val errorMessage: String? = null
-)
-'''
+sealed class ExportJobState {
+    data object Idle : ExportJobState()
+    data class Running(
+        val currentIndex: Int,
+        val total: Int,
+        val currentTitle: String,
+        val progressFraction: Float
+    ) : ExportJobState()
 
-FILES["app/src/main/java/com/clippulse/studio/data/AiConfigRepository.kt"] = r'''package com.clippulse.studio.data
+    data class Completed(
+        val exportedCount: Int,
+        val savedLocations: List<String>
+    ) : ExportJobState()
 
-import android.content.Context
-import com.clippulse.studio.model.AiProviderPreset
-import com.clippulse.studio.model.AiSettings
-import com.clippulse.studio.model.ExportConfig
-import org.json.JSONArray
+    data class Failed(val error: String) : ExportJobState()
+}
 
-class AiConfigRepository(context: Context) {
+object TimeFormatter {
+    fun formatTimestamp(totalSeconds: Double): String {
+        val safeSec = totalSeconds.coerceAtLeast(0.0).toLong()
+        val hours = safeSec / 3600L
+        val minutes = (safeSec % 3600L) / 60L
+        val seconds = safeSec % 60L
+        return if (hours > 0L) {
+            String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.US, "%02d:%02d", minutes, seconds)
+        }
+    }
 
-    private val prefs = context.applicationContext.getSharedPreferences(
-        "clippulse_prefs_v1",
-        Context.MODE_PRIVATE
+    fun formatFfmpegDuration(totalSeconds: Double): String {
+        val clamped = totalSeconds.coerceAtLeast(0.0)
+        val hours = (clamped / 3600.0).toInt()
+        val minutes = ((clamped % 3600.0) / 60.0).toInt()
+        val seconds = clamped % 60.0
+        return String.format(Locale.US, "%02d:%02d:%05.2f", hours, minutes, seconds)
+    }
+
+    fun formatSectionTimestamp(totalSeconds: Double): String {
+        val safeSec = totalSeconds.coerceAtLeast(0.0).toLong()
+        val hours = safeSec / 3600L
+        val minutes = (safeSec % 3600L) / 60L
+        val seconds = safeSec % 60L
+        return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+    }
+}
+""",
     )
 
-    fun loadAiSettings(): AiSettings {
-        val presetName = prefs.getString("ai_preset", AiProviderPreset.DEEPSEEK.name)
-            ?: AiProviderPreset.DEEPSEEK.name
-        val preset = runCatching { AiProviderPreset.valueOf(presetName) }
-            .getOrDefault(AiProviderPreset.DEEPSEEK)
+    write_file(
+        f"{base}/data/AiConfigStore.kt",
+        """
+package com.clippulse.studio.data
 
-        val baseUrl = prefs.getString("ai_base_url", preset.defaultBaseUrl)
-            ?: preset.defaultBaseUrl
-        val primaryKey = prefs.getString("ai_primary_key", "") ?: ""
-        val selectedModel = prefs.getString("ai_selected_model", preset.defaultModel)
-            ?: preset.defaultModel
-        val backupKeys = decodeStringList(prefs.getString("ai_backup_keys", "[]"))
-        val availableModels = decodeStringList(prefs.getString("ai_available_models", "[]"))
-            .ifEmpty {
-                listOf(
-                    "deepseek-chat",
-                    "deepseek-reasoner",
-                    "gemini-2.5-flash",
-                    "gemini-2.5-pro",
-                    "gpt-4o-mini"
-                )
-            }
-        val smartPeakOnly = prefs.getBoolean("ai_smart_peak_only", true)
-        val offlineMode = prefs.getBoolean("ai_offline_mode", false)
+import android.content.Context
+import com.clippulse.studio.model.AiConfig
+import com.clippulse.studio.model.AiPreset
+import org.json.JSONArray
 
-        return AiSettings(
+class AiConfigStore(context: Context) {
+    private val prefs = context.applicationContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    fun load(): AiConfig {
+        val presetName = prefs.getString(KEY_PRESET, AiPreset.DEEPSEEK.name) ?: AiPreset.DEEPSEEK.name
+        val preset = runCatching { AiPreset.valueOf(presetName) }.getOrDefault(AiPreset.DEEPSEEK)
+        val baseUrl = prefs.getString(KEY_BASE_URL, preset.defaultBaseUrl) ?: preset.defaultBaseUrl
+        val primaryKey = prefs.getString(KEY_PRIMARY_KEY, "") ?: ""
+        val backupKeys = decodeStringList(prefs.getString(KEY_BACKUP_KEYS, "[]") ?: "[]")
+        val selectedModel = prefs.getString(KEY_SELECTED_MODEL, preset.defaultModel) ?: preset.defaultModel
+        val savedModels = decodeStringList(prefs.getString(KEY_AVAILABLE_MODELS, "[]") ?: "[]")
+        val availableModels = if (savedModels.isNotEmpty()) savedModels else AiConfig().availableModels
+        val smartPeakOnly = prefs.getBoolean(KEY_SMART_PEAK_ONLY, true)
+        val offlineNoAiMode = prefs.getBoolean(KEY_OFFLINE_NO_AI, false)
+
+        return AiConfig(
             preset = preset,
-            baseUrl = baseUrl,
-            primaryApiKey = primaryKey,
-            backupApiKeys = backupKeys,
+            baseUrl = normalizeBaseUrl(baseUrl),
+            primaryKey = primaryKey,
+            backupKeys = backupKeys,
             selectedModel = selectedModel,
             availableModels = availableModels,
             smartPeakOnly = smartPeakOnly,
-            offlineMode = offlineMode
+            offlineNoAiMode = offlineNoAiMode
         )
     }
 
-    fun saveAiSettings(settings: AiSettings) {
+    fun save(config: AiConfig) {
+        val normalizedUrl = normalizeBaseUrl(config.baseUrl)
         prefs.edit()
-            .putString("ai_preset", settings.preset.name)
-            .putString("ai_base_url", settings.baseUrl.trim())
-            .putString("ai_primary_key", settings.primaryApiKey.trim())
-            .putString("ai_backup_keys", encodeStringList(settings.backupApiKeys))
-            .putString("ai_selected_model", settings.selectedModel.trim())
-            .putString("ai_available_models", encodeStringList(settings.availableModels))
-            .putBoolean("ai_smart_peak_only", settings.smartPeakOnly)
-            .putBoolean("ai_offline_mode", settings.offlineMode)
-            .apply()
-    }
-
-    fun loadExportConfig(): ExportConfig {
-        return ExportConfig(
-            useVerticalCrop = prefs.getBoolean("export_vertical_crop", false),
-            includeTxtSidecar = prefs.getBoolean("export_txt_sidecar", true),
-            startPaddingSec = prefs.getInt("export_start_pad", 3),
-            endPaddingSec = prefs.getInt("export_end_pad", 5)
-        )
-    }
-
-    fun saveExportConfig(config: ExportConfig) {
-        prefs.edit()
-            .putBoolean("export_vertical_crop", config.useVerticalCrop)
-            .putBoolean("export_txt_sidecar", config.includeTxtSidecar)
-            .putInt("export_start_pad", config.startPaddingSec)
-            .putInt("export_end_pad", config.endPaddingSec)
+            .putString(KEY_PRESET, config.preset.name)
+            .putString(KEY_BASE_URL, normalizedUrl)
+            .putString(KEY_PRIMARY_KEY, config.primaryKey.trim())
+            .putString(KEY_BACKUP_KEYS, encodeStringList(config.backupKeys.filter { it.isNotBlank() }))
+            .putString(KEY_SELECTED_MODEL, config.selectedModel.trim())
+            .putString(KEY_AVAILABLE_MODELS, encodeStringList(config.availableModels))
+            .putBoolean(KEY_SMART_PEAK_ONLY, config.smartPeakOnly)
+            .putBoolean(KEY_OFFLINE_NO_AI, config.offlineNoAiMode)
             .apply()
     }
 
     private fun encodeStringList(items: List<String>): String {
         val array = JSONArray()
-        items.filter { it.isNotBlank() }.forEach { array.put(it.trim()) }
+        items.forEach { array.put(it) }
         return array.toString()
     }
 
-    private fun decodeStringList(raw: String?): List<String> {
-        if (raw.isNullOrBlank()) return emptyList()
-        return runCatching {
+    private fun decodeStringList(raw: String): List<String> {
+        return try {
             val array = JSONArray(raw)
             buildList {
                 for (i in 0 until array.length()) {
@@ -638,24 +669,49 @@ class AiConfigRepository(context: Context) {
                     if (value.isNotEmpty()) add(value)
                 }
             }
-        }.getOrDefault(emptyList())
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    companion object {
+        private const val PREFS_NAME = "clippulse_universal_ai_prefs"
+        private const val KEY_PRESET = "preset"
+        private const val KEY_BASE_URL = "base_url"
+        private const val KEY_PRIMARY_KEY = "primary_key"
+        private const val KEY_BACKUP_KEYS = "backup_keys"
+        private const val KEY_SELECTED_MODEL = "selected_model"
+        private const val KEY_AVAILABLE_MODELS = "available_models"
+        private const val KEY_SMART_PEAK_ONLY = "smart_peak_only"
+        private const val KEY_OFFLINE_NO_AI = "offline_no_ai"
+
+        fun normalizeBaseUrl(rawUrl: String): String {
+            var cleaned = rawUrl.trim().trimEnd('/')
+            val suffixes = listOf("/chat/completions", "/completions", "/models")
+            for (suffix in suffixes) {
+                if (cleaned.endsWith(suffix, ignoreCase = true)) {
+                    cleaned = cleaned.dropLast(suffix.length).trimEnd('/')
+                }
+            }
+            return cleaned
+        }
     }
 }
-'''
+""",
+    )
 
-# ==============================================================================
-# 5. UNIVERSAL AI CLIENT (DYNAMIC FETCH, CONNECT, FAILOVER, STRICT JSON)
-# ==============================================================================
-
-FILES["app/src/main/java/com/clippulse/studio/network/UniversalAiClient.kt"] = r'''package com.clippulse.studio.network
+    write_file(
+        f"{base}/network/UniversalAiClient.kt",
+        """
+package com.clippulse.studio.network
 
 import android.os.SystemClock
-import com.clippulse.studio.engine.TimeUtils
-import com.clippulse.studio.model.AiSettings
-import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.SignalType
+import com.clippulse.studio.data.AiConfigStore
+import com.clippulse.studio.model.AiConfig
+import com.clippulse.studio.model.AiConnectionState
 import com.clippulse.studio.model.SuperChatEvent
-import com.clippulse.studio.model.TranscriptSegment
+import com.clippulse.studio.model.TimeFormatter
+import com.clippulse.studio.model.TranscriptCue
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
@@ -664,343 +720,242 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
 
-class UniversalAiClient {
+data class AiClipSuggestion(
+    val startSec: Double,
+    val endSec: Double,
+    val title: String,
+    val score: Int,
+    val reason: String
+)
 
+class UniversalAiClient {
     private val client = OkHttpClient.Builder()
-        .connectTimeout(25, TimeUnit.SECONDS)
+        .connectTimeout(20, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
-        .writeTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
         .build()
 
     private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
 
-    fun normalizeBaseUrl(rawUrl: String): String {
-        var url = rawUrl.trim().trimEnd('/')
-        if (url.endsWith("/chat/completions")) {
-            url = url.removeSuffix("/chat/completions").trimEnd('/')
-        }
-        if (url.endsWith("/models")) {
-            url = url.removeSuffix("/models").trimEnd('/')
-        }
-        return url
-    }
-
-    private fun orderedKeys(settings: AiSettings): List<String> {
-        return buildList {
-            if (settings.primaryApiKey.isNotBlank()) add(settings.primaryApiKey.trim())
-            settings.backupApiKeys.forEach { key ->
-                val trimmed = key.trim()
-                if (trimmed.isNotEmpty() && !contains(trimmed)) add(trimmed)
-            }
-        }
-    }
-
-    suspend fun fetchModels(settings: AiSettings): Result<List<String>> = withContext(Dispatchers.IO) {
-        val baseUrl = normalizeBaseUrl(settings.baseUrl)
+    suspend fun fetchModels(config: AiConfig): Result<List<String>> = withContext(Dispatchers.IO) {
+        val baseUrl = AiConfigStore.normalizeBaseUrl(config.baseUrl)
         if (baseUrl.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("Base URL cannot be empty"))
+            return@withContext Result.failure(IllegalArgumentException("Base URL cannot be empty."))
         }
-        val keys = orderedKeys(settings)
+        val keys = config.orderedKeys()
         if (keys.isEmpty()) {
-            return@withContext Result.failure(IllegalArgumentException("Enter at least one API key first"))
+            return@withContext Result.failure(IllegalArgumentException("Enter at least one API key first."))
         }
 
-        var lastError = "Failed to fetch models"
-        for (key in keys) {
-            val request = Request.Builder()
-                .url("$baseUrl/models")
-                .addHeader("Authorization", "Bearer $key")
-                .addHeader("Accept", "application/json")
+        val endpoint = "$baseUrl/models"
+        val responseResult = executeWithFailover(keys) { key ->
+            Request.Builder()
+                .url(endpoint)
                 .get()
+                .addHeader("Authorization", "Bearer $key")
+                .addHeader("HTTP-Referer", "https://clippulse.app")
+                .addHeader("X-Title", "ClipPulse")
                 .build()
-
-            try {
-                client.newCall(request).execute().use { response ->
-                    val bodyStr = response.body?.string().orEmpty()
-                    if (!response.isSuccessful) {
-                        lastError = parseHttpError(response.code, bodyStr)
-                        if (shouldFailover(response.code)) continue
-                        return@withContext Result.failure(IOException(lastError))
-                    }
-
-                    val models = parseModelsResponse(bodyStr)
-                    if (models.isEmpty()) {
-                        return@withContext Result.failure(
-                            IOException("Endpoint returned 200 OK but no model IDs were found")
-                        )
-                    }
-                    return@withContext Result.success(models)
-                }
-            } catch (e: Exception) {
-                lastError = e.message ?: "Network error while fetching models"
-            }
         }
-        Result.failure(IOException(lastError))
+
+        responseResult.mapCatching { body ->
+            val root = JSONObject(body)
+            val dataArray = root.optJSONArray("data")
+                ?: throw IllegalStateException("Response missing 'data' models array.")
+            val models = buildList {
+                for (i in 0 until dataArray.length()) {
+                    val item = dataArray.optJSONObject(i) ?: continue
+                    val id = item.optString("id").trim()
+                    if (id.isNotEmpty()) add(id)
+                }
+            }.distinct().sorted()
+
+            if (models.isEmpty()) {
+                throw IllegalStateException("Provider returned an empty models list.")
+            }
+            models
+        }
     }
 
-    suspend fun testConnection(settings: AiSettings): Result<Long> = withContext(Dispatchers.IO) {
-        val baseUrl = normalizeBaseUrl(settings.baseUrl)
+    suspend fun testConnection(config: AiConfig): AiConnectionState = withContext(Dispatchers.IO) {
+        val baseUrl = AiConfigStore.normalizeBaseUrl(config.baseUrl)
+        val keys = config.orderedKeys()
+        val model = config.selectedModel.trim().ifBlank { config.preset.defaultModel }
+
         if (baseUrl.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("Base URL is required"))
+            return@withContext AiConnectionState.Error("Base URL is required.")
         }
-        val model = settings.selectedModel.trim()
-        if (model.isBlank()) {
-            return@withContext Result.failure(IllegalArgumentException("Select or enter a model ID"))
-        }
-        val keys = orderedKeys(settings)
         if (keys.isEmpty()) {
-            return@withContext Result.failure(IllegalArgumentException("API Key is required"))
+            return@withContext AiConnectionState.Error("No API key configured.")
         }
 
         val payload = JSONObject().apply {
             put("model", model)
+            put("max_tokens", 1)
+            put("temperature", 0.0)
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "user")
-                    put("content", "ping")
+                    put("content", "Hi")
                 })
             })
-            put("max_tokens", 1)
-            put("temperature", 0)
-        }
+        }.toString()
 
-        var lastError = "Connection failed"
-        for (key in keys) {
-            val startMs = SystemClock.elapsedRealtime()
-            val request = Request.Builder()
+        val startMs = SystemClock.elapsedRealtime()
+        val result = executeWithFailover(keys) { key ->
+            Request.Builder()
                 .url("$baseUrl/chat/completions")
+                .post(payload.toRequestBody(jsonMediaType))
                 .addHeader("Authorization", "Bearer $key")
                 .addHeader("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody(jsonMediaType))
+                .addHeader("HTTP-Referer", "https://clippulse.app")
+                .addHeader("X-Title", "ClipPulse")
                 .build()
-
-            try {
-                client.newCall(request).execute().use { response ->
-                    val bodyStr = response.body?.string().orEmpty()
-                    val elapsed = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
-                    if (!response.isSuccessful) {
-                        lastError = parseHttpError(response.code, bodyStr)
-                        if (shouldFailover(response.code)) continue
-                        return@withContext Result.failure(IOException(lastError))
-                    }
-                    return@withContext Result.success(elapsed)
-                }
-            } catch (e: Exception) {
-                lastError = e.message ?: "Network timeout or DNS error"
-            }
         }
-        Result.failure(IOException(lastError))
+        val elapsedMs = (SystemClock.elapsedRealtime() - startMs).coerceAtLeast(1L)
+
+        result.fold(
+            onSuccess = { AiConnectionState.Connected(latencyMs = elapsedMs, model = model) },
+            onFailure = { err -> AiConnectionState.Error(err.message ?: "Connection failed") }
+        )
     }
 
-    suspend fun alignSuperChats(
-        settings: AiSettings,
-        superChats: List<SuperChatEvent>,
-        transcript: List<TranscriptSegment>,
-        durationSec: Double
-    ): Map<String, Pair<Double, Double>> = withContext(Dispatchers.IO) {
-        if (settings.offlineMode || orderedKeys(settings).isEmpty() || superChats.isEmpty() || transcript.isEmpty()) {
-            return@withContext emptyMap()
-        }
-
-        val targetEvents = superChats.take(15)
-        val eventsSummary = buildString {
-            targetEvents.forEach { sc ->
-                val windowStart = (sc.offsetSec - 45.0).coerceAtLeast(0.0)
-                val windowEnd = (sc.offsetSec + 75.0).coerceAtMost(durationSec)
-                val nearbyLines = transcript.filter {
-                    it.endSec >= windowStart && it.startSec <= windowEnd
-                }.joinToString(" ") {
-                    "[${String.format(Locale.US, "%.0f", it.startSec)}s] ${it.text}"
-                }
-                appendLine("ID=${sc.id} | ChatTime=${String.format(Locale.US, "%.0f", sc.offsetSec)}s | Donor=${sc.authorName} (${sc.amountText}) | Msg=${sc.message}")
-                appendLine("TranscriptWindow: $nearbyLines")
-                appendLine("---")
-            }
-        }
-
-        val systemPrompt = """
-You are a livestream clip timestamp aligner. Given Super Chat donations and surrounding transcript lines with timestamps in seconds, find the exact start_sec and end_sec when the streamer notices, reads, and reacts to each Super Chat.
-Return STRICT JSON ONLY with no markdown fences, no commentary, and no thinking text:
-{"alignments":[{"id":"...","start_sec":120.0,"end_sec":155.0}]}
-        """.trimIndent()
-
-        val rawResponse = sendChatCompletion(
-            settings = settings,
-            systemPrompt = systemPrompt,
-            userPrompt = eventsSummary,
-            maxTokens = 900
-        ) ?: return@withContext emptyMap()
-
-        val json = extractJsonObject(rawResponse) ?: return@withContext emptyMap()
-        val array = json.optJSONArray("alignments") ?: return@withContext emptyMap()
-
-        val result = mutableMapOf<String, Pair<Double, Double>>()
-        for (i in 0 until array.length()) {
-            val item = array.optJSONObject(i) ?: continue
-            val id = item.optString("id")
-            val start = item.optDouble("start_sec", Double.NaN)
-            val end = item.optDouble("end_sec", Double.NaN)
-            if (id.isNotBlank() && !start.isNaN() && !end.isNaN() && end > start) {
-                result[id] = Pair(
-                    start.coerceIn(0.0, durationSec),
-                    end.coerceIn((start + 4.0).coerceAtMost(durationSec), durationSec)
-                )
-            }
-        }
-        result
-    }
-
-    suspend fun detectViralAndCustomClips(
-        settings: AiSettings,
+    suspend fun findViralAndCustomClips(
+        config: AiConfig,
         videoTitle: String,
         durationSec: Double,
-        transcript: List<TranscriptSegment>,
-        anchorTimestampsSec: List<Double>,
-        customQuery: String
-    ): List<ClipCandidate> = withContext(Dispatchers.IO) {
-        if (settings.offlineMode || orderedKeys(settings).isEmpty() || transcript.isEmpty()) {
-            return@withContext emptyList()
-        }
+        cues: List<TranscriptCue>,
+        peakCentersSec: List<Double>,
+        customPrompt: String
+    ): List<AiClipSuggestion> = withContext(Dispatchers.IO) {
+        if (!config.canUseAi() || cues.isEmpty()) return@withContext emptyList()
 
-        val condensedTranscript = buildTokenOptimizedTranscript(
-            transcript = transcript,
-            durationSec = durationSec,
-            anchorTimestampsSec = anchorTimestampsSec,
-            smartPeakOnly = settings.smartPeakOnly
+        val transcriptBlock = buildOptimizedTranscriptBlock(
+            cues = cues,
+            peakCentersSec = peakCentersSec,
+            smartPeakOnly = config.smartPeakOnly
         )
-        if (condensedTranscript.isBlank()) return@withContext emptyList()
+        if (transcriptBlock.isBlank()) return@withContext emptyList()
 
-        val taskDirective = if (customQuery.isNotBlank()) {
-            "Find every moment matching the user's search query: \"$customQuery\". Score relevance and entertainment from 1 to 100."
+        val goalInstruction = if (customPrompt.isNotBlank()) {
+            "Find every moment matching this user request: \"${customPrompt.trim()}\"."
         } else {
-            "Identify the top 5-8 highest-retention viral hooks, funny moments, heated debates, or dramatic stories. Score viral potential from 1 to 100."
+            "Identify the top 4 to 8 highest-retention viral hooks, funny moments, heated reactions, or key insights."
         }
 
         val systemPrompt = """
-You are an expert short-form video editor. Analyze the timestamped transcript for "$videoTitle" (total duration ${String.format(Locale.US, "%.0f", durationSec)}s).
-$taskDirective
-Each clip should be 15 to 60 seconds long with clean start_sec and end_sec boundaries.
-Return STRICT JSON ONLY with no markdown fences, no prose, and no thinking text:
-{"clips":[{"title":"Hooky 5-word title","start_sec":42.0,"end_sec":78.0,"score":92,"reason":"Why this moment hooks viewers"}]}
+            You are a viral short-form video editor. Return STRICT JSON ONLY—no markdown fences, no commentary, no reasoning text.
+            Schema: {"clips":[{"start":12.5,"end":42.0,"title":"Short punchy title","score":88,"reason":"Why this pops"}]}
+            Rules:
+            - start and end must be numbers in seconds within [0, ${String.format(Locale.US, "%.1f", durationSec)}].
+            - Clip duration should be 12 to 65 seconds.
+            - score must be an integer 1 to 100.
         """.trimIndent()
 
-        val rawResponse = sendChatCompletion(
-            settings = settings,
-            systemPrompt = systemPrompt,
-            userPrompt = condensedTranscript,
-            maxTokens = 1200
-        ) ?: return@withContext emptyList()
+        val userPrompt = """
+            Video Title: $videoTitle
+            Duration: ${TimeFormatter.formatTimestamp(durationSec)}
+            Task: $goalInstruction
+            Transcript Segments ([seconds] text):
+            $transcriptBlock
+        """.trimIndent()
 
-        val json = extractJsonObject(rawResponse) ?: return@withContext emptyList()
-        val array = json.optJSONArray("clips") ?: return@withContext emptyList()
+        val rawResponse = completeChat(config, systemPrompt, userPrompt, maxTokens = 900) ?: return@withContext emptyList()
+        parseClipSuggestionsJson(rawResponse, durationSec)
+    }
 
-        buildList {
-            for (i in 0 until array.length()) {
-                val item = array.optJSONObject(i) ?: continue
-                val rawStart = item.optDouble("start_sec", Double.NaN)
-                val rawEnd = item.optDouble("end_sec", Double.NaN)
-                if (rawStart.isNaN() || rawEnd.isNaN() || rawEnd <= rawStart) continue
+    suspend fun alignSuperChatReactions(
+        config: AiConfig,
+        superChats: List<SuperChatEvent>,
+        cues: List<TranscriptCue>,
+        durationSec: Double
+    ): Map<Double, Pair<Double, Double>> = withContext(Dispatchers.IO) {
+        if (!config.canUseAi() || superChats.isEmpty() || cues.isEmpty()) return@withContext emptyMap()
 
-                val start = rawStart.coerceIn(0.0, (durationSec - 3.0).coerceAtLeast(0.0))
-                val end = rawEnd.coerceIn(start + 3.0, durationSec)
-                val title = item.optString("title").ifBlank {
-                    "AI Highlight @ ${TimeUtils.formatTimestamp(start)}"
+        val topDonations = superChats.sortedByDescending { it.usdApprox }.take(8)
+        val promptEntries = buildString {
+            topDonations.forEachIndexed { index, sc ->
+                val windowCues = cues.filter { it.endSec >= sc.offsetSec - 15.0 && it.startSec <= sc.offsetSec + 65.0 }
+                val lines = windowCues.joinToString(" ") {
+                    "[${String.format(Locale.US, "%.1f", it.startSec)}s] ${it.text}"
                 }
-                val score = item.optInt("score", 82).coerceIn(1, 100)
-                val reason = item.optString("reason")
-                val snippet = transcript.filter { it.endSec >= start && it.startSec <= end }
-                    .joinToString(" ") { it.text }
-                    .take(260)
-
-                add(
-                    ClipCandidate(
-                        title = title,
-                        startSec = start,
-                        endSec = end,
-                        score = score,
-                        signals = listOf(SignalType.AI_PICK),
-                        transcriptSnippet = snippet,
-                        reason = reason
-                    )
-                )
+                appendLine("Item $index | offset=${String.format(Locale.US, "%.1f", sc.offsetSec)} | donor=${sc.donor} (${sc.amountDisplay}): \"${sc.message}\"")
+                appendLine("Transcript around donation: ${lines.take(700)}")
             }
+        }
+
+        val systemPrompt = """
+            Align each Super Chat donation with the streamer's spoken read & reaction in the transcript.
+            Return STRICT JSON ONLY: {"alignments":[{"offset":120.0,"start":116.0,"end":148.0}]}
+        """.trimIndent()
+
+        val raw = completeChat(config, systemPrompt, promptEntries, maxTokens = 500) ?: return@withContext emptyMap()
+        val cleanJson = extractJsonObject(raw) ?: return@withContext emptyMap()
+
+        return@withContext try {
+            val root = JSONObject(cleanJson)
+            val arr = root.optJSONArray("alignments") ?: return@withContext emptyMap()
+            val map = mutableMapOf<Double, Pair<Double, Double>>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val offset = obj.optDouble("offset", Double.NaN)
+                val start = obj.optDouble("start", Double.NaN)
+                val end = obj.optDouble("end", Double.NaN)
+                if (!offset.isNaN() && !start.isNaN() && !end.isNaN() && end > start) {
+                    val safeStart = start.coerceIn(0.0, durationSec)
+                    val safeEnd = end.coerceIn(safeStart + 5.0, durationSec.coerceAtLeast(safeStart + 5.0))
+                    map[offset] = safeStart to safeEnd
+                }
+            }
+            map
+        } catch (_: Throwable) {
+            emptyMap()
         }
     }
 
-    private fun buildTokenOptimizedTranscript(
-        transcript: List<TranscriptSegment>,
-        durationSec: Double,
-        anchorTimestampsSec: List<Double>,
+    private fun buildOptimizedTranscriptBlock(
+        cues: List<TranscriptCue>,
+        peakCentersSec: List<Double>,
         smartPeakOnly: Boolean
     ): String {
-        val windows: List<Pair<Double, Double>> = if (smartPeakOnly && anchorTimestampsSec.isNotEmpty()) {
-            val rawWindows = anchorTimestampsSec.sorted().map { anchor ->
-                Pair(
-                    (anchor - 60.0).coerceAtLeast(0.0),
-                    (anchor + 60.0).coerceAtMost(durationSec)
-                )
-            }
-            mergeWindows(rawWindows)
-        } else if (smartPeakOnly && durationSec > 600.0) {
-            val step = durationSec / 5.0
-            (0 until 5).map { idx ->
-                val center = (idx + 0.5) * step
-                Pair(
-                    (center - 60.0).coerceAtLeast(0.0),
-                    (center + 60.0).coerceAtMost(durationSec)
-                )
+        val selectedCues = if (smartPeakOnly && peakCentersSec.isNotEmpty()) {
+            // Slice 2-minute (±60s) windows around detected peaks/Super Chats (~85% token savings)
+            cues.filter { cue ->
+                peakCentersSec.any { center ->
+                    cue.endSec >= (center - 60.0) && cue.startSec <= (center + 60.0)
+                }
             }
         } else {
-            listOf(Pair(0.0, durationSec))
+            cues
         }
 
-        val sb = StringBuilder()
-        for ((wStart, wEnd) in windows) {
-            sb.appendLine("--- Window ${TimeUtils.formatTimestamp(wStart)} to ${TimeUtils.formatTimestamp(wEnd)} ---")
-            val segs = transcript.filter { it.endSec >= wStart && it.startSec <= wEnd }
-            for (seg in segs) {
-                if (sb.length > 14_000) break
-                sb.append('[')
-                sb.append(String.format(Locale.US, "%.0f", seg.startSec))
-                sb.append("s] ")
-                sb.appendLine(seg.text)
-            }
-            if (sb.length > 14_000) break
+        val builder = StringBuilder()
+        for (cue in selectedCues) {
+            val line = "[${String.format(Locale.US, "%.1f", cue.startSec)}] ${cue.text}\n"
+            if (builder.length + line.length > 14000) break
+            builder.append(line)
         }
-        return sb.toString()
+        return builder.toString()
     }
 
-    private fun mergeWindows(sortedWindows: List<Pair<Double, Double>>): List<Pair<Double, Double>> {
-        if (sortedWindows.isEmpty()) return emptyList()
-        val merged = mutableListOf(sortedWindows.first())
-        for (i in 1 until sortedWindows.size) {
-            val prev = merged.last()
-            val curr = sortedWindows[i]
-            if (curr.first <= prev.second + 15.0) {
-                merged[merged.lastIndex] = Pair(prev.first, maxOf(prev.second, curr.second))
-            } else {
-                merged.add(curr)
-            }
-        }
-        return merged
-    }
-
-    private fun sendChatCompletion(
-        settings: AiSettings,
+    private fun completeChat(
+        config: AiConfig,
         systemPrompt: String,
         userPrompt: String,
         maxTokens: Int
     ): String? {
-        val baseUrl = normalizeBaseUrl(settings.baseUrl)
-        val keys = orderedKeys(settings)
+        val baseUrl = AiConfigStore.normalizeBaseUrl(config.baseUrl)
+        val keys = config.orderedKeys()
+        val model = config.selectedModel.trim().ifBlank { config.preset.defaultModel }
         if (baseUrl.isBlank() || keys.isEmpty()) return null
 
         val payload = JSONObject().apply {
-            put("model", settings.selectedModel)
+            put("model", model)
+            put("max_tokens", maxTokens)
+            put("temperature", 0.2)
             put("messages", JSONArray().apply {
                 put(JSONObject().apply {
                     put("role", "system")
@@ -1011,1375 +966,1389 @@ Return STRICT JSON ONLY with no markdown fences, no prose, and no thinking text:
                     put("content", userPrompt)
                 })
             })
-            put("max_tokens", maxTokens)
-            put("temperature", 0.2)
-        }
+        }.toString()
 
-        for (key in keys) {
-            val request = Request.Builder()
+        val result = executeWithFailover(keys) { key ->
+            Request.Builder()
                 .url("$baseUrl/chat/completions")
+                .post(payload.toRequestBody(jsonMediaType))
                 .addHeader("Authorization", "Bearer $key")
                 .addHeader("Content-Type", "application/json")
-                .post(payload.toString().toRequestBody(jsonMediaType))
+                .addHeader("HTTP-Referer", "https://clippulse.app")
+                .addHeader("X-Title", "ClipPulse")
                 .build()
-
-            try {
-                client.newCall(request).execute().use { response ->
-                    val bodyStr = response.body?.string().orEmpty()
-                    if (!response.isSuccessful) {
-                        if (shouldFailover(response.code)) continue
-                        return null
-                    }
-                    val root = JSONObject(bodyStr)
-                    val choices = root.optJSONArray("choices") ?: return null
-                    if (choices.length() == 0) return null
-                    val message = choices.getJSONObject(0).optJSONObject("message") ?: return null
-                    return message.optString("content")
-                }
-            } catch (_: Exception) {
-                // Fail over to next backup key on transient network failure
-            }
         }
-        return null
+
+        val body = result.getOrNull() ?: return null
+        return try {
+            val root = JSONObject(body)
+            val choices = root.optJSONArray("choices") ?: return null
+            if (choices.length() == 0) return null
+            val message = choices.getJSONObject(0).optJSONObject("message") ?: return null
+            message.optString("content").trim()
+        } catch (_: Throwable) {
+            null
+        }
     }
 
-    private fun extractJsonObject(rawText: String): JSONObject? {
-        val cleaned = rawText
-            .replace(Regex("<think>[\\s\\S]*?</think>", RegexOption.IGNORE_CASE), "")
-            .replace("```json", "")
+    private fun parseClipSuggestionsJson(raw: String, durationSec: Double): List<AiClipSuggestion> {
+        val jsonText = extractJsonObject(raw) ?: return emptyList()
+        return try {
+            val root = JSONObject(jsonText)
+            val array = root.optJSONArray("clips") ?: return emptyList()
+            buildList {
+                for (i in 0 until array.length()) {
+                    val item = array.optJSONObject(i) ?: continue
+                    val start = item.optDouble("start", Double.NaN)
+                    val end = item.optDouble("end", Double.NaN)
+                    if (start.isNaN() || end.isNaN()) continue
+                    val safeStart = start.coerceIn(0.0, (durationSec - 3.0).coerceAtLeast(0.0))
+                    val safeEnd = end.coerceIn(safeStart + 4.0, durationSec.coerceAtLeast(safeStart + 4.0))
+                    val title = item.optString("title").trim().ifBlank { "AI Viral Highlight #${i + 1}" }
+                    val score = item.optInt("score", 82).coerceIn(1, 100)
+                    val reason = item.optString("reason").trim().ifBlank { "High-retention moment detected by AI" }
+                    add(
+                        AiClipSuggestion(
+                            startSec = safeStart,
+                            endSec = safeEnd,
+                            title = title,
+                            score = score,
+                            reason = reason
+                        )
+                    )
+                }
+            }
+        } catch (_: Throwable) {
+            emptyList()
+        }
+    }
+
+    private fun extractJsonObject(raw: String): String? {
+        // Strip <think>...</think> reasoning blocks and markdown code fences
+        val withoutThink = raw.replace(Regex("""<think>[\s\S]*?</think>""", RegexOption.IGNORE_CASE), "")
+            .replace("```json", "", ignoreCase = true)
             .replace("```", "")
             .trim()
-
-        runCatching { return JSONObject(cleaned) }
-
-        val match = Regex("\\{[\\s\\S]*\\}").find(cleaned) ?: return null
-        return runCatching { JSONObject(match.value) }.getOrNull()
+        val match = Regex("""\{[\s\S]*\}""").find(withoutThink)
+        return match?.value
     }
 
-    private fun parseModelsResponse(bodyStr: String): List<String> {
-        val root = JSONObject(bodyStr)
-        val dataArray = root.optJSONArray("data") ?: root.optJSONArray("models") ?: return emptyList()
-        return buildList {
-            for (i in 0 until dataArray.length()) {
-                val obj = dataArray.optJSONObject(i)
-                val id = obj?.optString("id")?.ifBlank { obj.optString("name") }
-                    ?: dataArray.optString(i)
-                if (id.isNotBlank()) add(id.removePrefix("models/"))
+    private fun executeWithFailover(
+        keys: List<String>,
+        requestFactory: (apiKey: String) -> Request
+    ): Result<String> {
+        var lastError = "Request failed"
+        for ((index, key) in keys.withIndex()) {
+            try {
+                val request = requestFactory(key)
+                client.newCall(request).execute().use { response ->
+                    val code = response.code
+                    val bodyStr = response.body?.string().orEmpty()
+                    if (response.isSuccessful) {
+                        return Result.success(bodyStr)
+                    }
+                    val apiMessage = extractApiErrorMessage(bodyStr, response.message)
+                    lastError = "HTTP $code: $apiMessage"
+
+                    val shouldRotate = code == 401 || code == 403 || code == 429 || code in 500..599
+                    if (!shouldRotate || index == keys.lastIndex) {
+                        return Result.failure(IllegalStateException(lastError))
+                    }
+                }
+            } catch (e: Throwable) {
+                lastError = e.message ?: "Network error"
+                if (index == keys.lastIndex) {
+                    return Result.failure(IllegalStateException(lastError))
+                }
             }
-        }.distinct().sorted()
+        }
+        return Result.failure(IllegalStateException(lastError))
     }
 
-    private fun shouldFailover(httpCode: Int): Boolean {
-        return httpCode == 401 || httpCode == 403 || httpCode == 429 || httpCode >= 500
-    }
-
-    private fun parseHttpError(code: Int, body: String): String {
-        val parsedMsg = runCatching {
-            val json = JSONObject(body)
-            json.optJSONObject("error")?.optString("message")
-                ?.ifBlank { json.optString("message") }
-        }.getOrNull()
-
-        return if (!parsedMsg.isNullOrBlank()) {
-            "HTTP $code: $parsedMsg"
-        } else {
-            "HTTP $code: ${body.take(140).ifBlank { "Request rejected by API server" }}"
+    private fun extractApiErrorMessage(body: String, fallback: String): String {
+        return try {
+            val obj = JSONObject(body)
+            val errObj = obj.optJSONObject("error")
+            errObj?.optString("message")?.takeIf { it.isNotBlank() }
+                ?: obj.optString("message").takeIf { it.isNotBlank() }
+                ?: fallback.ifBlank { "API Error" }
+        } catch (_: Throwable) {
+            body.take(140).ifBlank { fallback.ifBlank { "API Error" } }
         }
     }
 }
-'''
-
-# ==============================================================================
-# 6. CORE ENGINE: TIME UTILS, FFMPEG RUNNER, STREAMING PARSER, CONSENSUS, ANALYZER, EXPORTER
-# ==============================================================================
-
-FILES["app/src/main/java/com/clippulse/studio/engine/TimeUtils.kt"] = r'''package com.clippulse.studio.engine
-
-import java.util.Locale
-
-object TimeUtils {
-
-    fun formatTimestamp(totalSeconds: Double): String {
-        val safe = totalSeconds.coerceAtLeast(0.0).toLong()
-        val hours = safe / 3600L
-        val minutes = (safe % 3600L) / 60L
-        val seconds = safe % 60L
-        return if (hours > 0L) {
-            String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            String.format(Locale.US, "%02d:%02d", minutes, seconds)
-        }
-    }
-
-    fun formatFfmpegTimestamp(totalSeconds: Double): String {
-        val safe = totalSeconds.coerceAtLeast(0.0)
-        val wholeSec = safe.toLong()
-        val hours = wholeSec / 3600L
-        val minutes = (wholeSec % 3600L) / 60L
-        val seconds = wholeSec % 60L
-        return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
-    }
-
-    fun formatDownloadSection(startSec: Double, endSec: Double): String {
-        val startStr = formatFfmpegTimestamp(startSec)
-        val endStr = formatFfmpegTimestamp(endSec.coerceAtLeast(startSec + 1.0))
-        return "*$startStr-$endStr"
-    }
-
-    fun parseVttTimestamp(raw: String): Double {
-        val cleaned = raw.trim().replace(',', '.')
-        val parts = cleaned.split(':')
-        return when (parts.size) {
-            3 -> {
-                val h = parts[0].toDoubleOrNull() ?: 0.0
-                val m = parts[1].toDoubleOrNull() ?: 0.0
-                val s = parts[2].toDoubleOrNull() ?: 0.0
-                h * 3600.0 + m * 60.0 + s
-            }
-            2 -> {
-                val m = parts[0].toDoubleOrNull() ?: 0.0
-                val s = parts[1].toDoubleOrNull() ?: 0.0
-                m * 60.0 + s
-            }
-            else -> 0.0
-        }
-    }
-
-    fun extractUrlFromSharedText(text: String): String {
-        val urlRegex = Regex("https?://[\\w\\-._~:/?#\\[\\]@!$&'()*+,;=%]+")
-        return urlRegex.find(text)?.value ?: text.trim()
-    }
-
-    fun sanitizeFileName(raw: String): String {
-        return raw.replace(Regex("[^a-zA-Z0-9._ -]"), "_")
-            .replace(Regex("\\s+"), "_")
-            .trim('_')
-            .take(64)
-            .ifBlank { "ClipPulse_Clip" }
-    }
-}
-'''
-
-FILES["app/src/main/java/com/clippulse/studio/engine/FfmpegRunner.kt"] = r'''package com.clippulse.studio.engine
-
-import android.content.Context
-import android.media.MediaMetadataRetriever
-import android.net.Uri
-import com.clippulse.studio.ClipPulseApp
-import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.SignalType
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import java.io.BufferedReader
-import java.io.File
-import java.io.InputStreamReader
-import java.util.Locale
-
-class FfmpegRunner(private val context: Context) {
-
-    data class FfmpegResult(
-        val exitCode: Int,
-        val output: String
+""",
     )
 
-    private fun resolveFfmpegBinary(): File? {
-        val candidates = listOf(
-            File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/bin/ffmpeg"),
-            File(context.filesDir, "youtubedl-android/packages/ffmpeg/usr/bin/ffmpeg"),
-            File(context.applicationInfo.nativeLibraryDir, "libffmpeg.so")
-        )
-        return candidates.firstOrNull { it.exists() && it.canExecute() }
-            ?: candidates.firstOrNull { it.exists() }
-    }
+    write_file(
+        f"{base}/engine/EngineInitializer.kt",
+        """
+package com.clippulse.studio.engine
 
-    private fun buildLibraryPath(): String {
-        val paths = listOf(
-            File(context.noBackupFilesDir, "youtubedl-android/packages/ffmpeg/usr/lib").absolutePath,
-            File(context.noBackupFilesDir, "youtubedl-android/packages/python/usr/lib").absolutePath,
-            File(context.filesDir, "youtubedl-android/packages/ffmpeg/usr/lib").absolutePath,
-            context.applicationInfo.nativeLibraryDir
-        )
-        return paths.joinToString(":")
-    }
+import android.content.Context
+import com.yausername.ffmpeg.FFmpeg
+import com.yausername.youtubedl_android.YoutubeDL
 
-    suspend fun execute(args: List<String>): FfmpegResult = withContext(Dispatchers.IO) {
-        ClipPulseApp.ensureEnginesInitialized(context)
-        val binary = resolveFfmpegBinary()
-            ?: return@withContext FfmpegResult(-1, "FFmpeg binary not found in native libraries")
+object EngineInitializer {
+    @Volatile
+    private var initialized = false
+    private val lock = Any()
 
-        val cmd = listOf(binary.absolutePath) + args
-        val pb = ProcessBuilder(cmd).redirectErrorStream(true)
-        val env = pb.environment()
-        val existingLd = env["LD_LIBRARY_PATH"].orEmpty()
-        val customLd = buildLibraryPath()
-        env["LD_LIBRARY_PATH"] = if (existingLd.isNotBlank()) "$customLd:$existingLd" else customLd
-
-        runCatching {
-            val process = pb.start()
-            val out = StringBuilder()
-            BufferedReader(InputStreamReader(process.inputStream)).use { reader ->
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    out.appendLine(line)
-                }
+    fun ensureInitialized(context: Context): Result<Unit> {
+        if (initialized) return Result.success(Unit)
+        synchronized(lock) {
+            if (initialized) return Result.success(Unit)
+            return try {
+                val appContext = context.applicationContext
+                YoutubeDL.getInstance().init(appContext)
+                FFmpeg.getInstance().init(appContext)
+                initialized = true
+                Result.success(Unit)
+            } catch (t: Throwable) {
+                Result.failure(t)
             }
-            val code = process.waitFor()
-            FfmpegResult(code, out.toString())
-        }.getOrElse { err ->
-            FfmpegResult(-1, err.message ?: "FFmpeg execution error")
         }
     }
 
-    suspend fun copyUriToCache(uri: Uri, targetFile: File): Result<File> = withContext(Dispatchers.IO) {
-        runCatching {
-            targetFile.parentFile?.mkdirs()
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                targetFile.outputStream().use { output ->
-                    input.copyTo(output, bufferSize = 65536)
-                }
-            } ?: error("Unable to open selected video URI")
-            targetFile
-        }
-    }
-
-    fun probeLocalDurationSec(filePath: String): Double {
-        val retriever = MediaMetadataRetriever()
+    fun updateYtDlpEngine(context: Context): Result<String> {
         return try {
-            retriever.setDataSource(filePath)
-            val ms = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
-                ?.toLongOrNull() ?: 0L
-            (ms / 1000.0).coerceAtLeast(1.0)
-        } catch (_: Exception) {
-            60.0
-        } finally {
-            runCatching { retriever.release() }
+            ensureInitialized(context).getOrThrow()
+            val status = YoutubeDL.getInstance().updateYoutubeDL(context.applicationContext)
+            Result.success(status?.toString() ?: "UPDATED")
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
-    }
-
-    suspend fun scanAudioEnergyPeaks(
-        inputPath: String,
-        durationSec: Double
-    ): List<ClipCandidate> = withContext(Dispatchers.IO) {
-        val result = execute(
-            listOf(
-                "-hide_banner",
-                "-nostats",
-                "-i", inputPath,
-                "-vn",
-                "-af", "astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-",
-                "-f", "null",
-                "-"
-            )
-        )
-
-        val rmsBySec = mutableListOf<Pair<Double, Double>>()
-        var currentTime = 0.0
-        val ptsRegex = Regex("pts_time:([0-9.]+)")
-        val rmsRegex = Regex("RMS_level=(-?[0-9.]+)")
-
-        for (line in result.output.lineSequence()) {
-            val ptsMatch = ptsRegex.find(line)
-            if (ptsMatch != null) {
-                currentTime = ptsMatch.groupValues[1].toDoubleOrNull() ?: currentTime
-                continue
-            }
-            val rmsMatch = rmsRegex.find(line)
-            if (rmsMatch != null) {
-                val db = rmsMatch.groupValues[1].toDoubleOrNull()
-                if (db != null && db.isFinite() && db > -90.0) {
-                    rmsBySec.add(Pair(currentTime, db))
-                }
-            }
-        }
-
-        if (rmsBySec.size < 6) {
-            val windowCount = (durationSec / 90.0).toInt().coerceIn(2, 6)
-            val step = durationSec / (windowCount + 1)
-            return@withContext (1..windowCount).map { idx ->
-                val center = idx * step
-                val start = (center - 15.0).coerceAtLeast(0.0)
-                val end = (center + 15.0).coerceAtMost(durationSec)
-                ClipCandidate(
-                    title = "Highlight Segment #$idx",
-                    startSec = start,
-                    endSec = end,
-                    score = 72,
-                    signals = listOf(SignalType.AUDIO_PEAK),
-                    reason = "Key visual segment candidate"
-                )
-            }
-        }
-
-        val meanDb = rmsBySec.map { it.second }.average()
-        val stdDb = kotlin.math.sqrt(
-            rmsBySec.map { (it.second - meanDb) * (it.second - meanDb) }.average()
-        ).coerceAtLeast(1.5)
-
-        val spikes = rmsBySec
-            .filter { it.second > meanDb + 1.15 * stdDb }
-            .sortedByDescending { it.second }
-
-        val picked = mutableListOf<ClipCandidate>()
-        for ((sec, db) in spikes) {
-            if (picked.size >= 8) break
-            if (picked.any { kotlin.math.abs(it.startSec - (sec - 12.0)) < 22.0 }) continue
-            val start = (sec - 12.0).coerceAtLeast(0.0)
-            val end = (sec + 18.0).coerceAtMost(durationSec)
-            val z = ((db - meanDb) / stdDb).coerceIn(1.0, 4.0)
-            val score = (70 + (z * 7.5)).toInt().coerceIn(68, 97)
-            picked.add(
-                ClipCandidate(
-                    title = "Audio Energy Spike @ ${TimeUtils.formatTimestamp(sec)}",
-                    startSec = start,
-                    endSec = end,
-                    score = score,
-                    signals = listOf(SignalType.AUDIO_PEAK),
-                    reason = String.format(
-                        Locale.US,
-                        "Vocal/SFX surge (%.1f dB vs %.1f dB avg)",
-                        db,
-                        meanDb
-                    )
-                )
-            )
-        }
-        picked.sortedBy { it.startSec }
     }
 }
-'''
+""",
+    )
 
-FILES["app/src/main/java/com/clippulse/studio/engine/ChatAndSubtitleParser.kt"] = r'''package com.clippulse.studio.engine
+    write_file(
+        f"{base}/engine/SubtitleAndChatParser.kt",
+        """
+package com.clippulse.studio.engine
 
-import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.SignalType
 import com.clippulse.studio.model.SuperChatEvent
-import com.clippulse.studio.model.TranscriptSegment
+import com.clippulse.studio.model.TranscriptCue
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStreamReader
 import java.nio.charset.StandardCharsets
-import java.util.Locale
 import kotlin.math.sqrt
 
-object ChatAndSubtitleParser {
+data class ChatVelocitySpike(
+    val startSec: Double,
+    val endSec: Double,
+    val messageCount: Int,
+    val multiplierOverAvg: Double
+)
 
-    data class LiveChatScanResult(
-        val superChats: List<SuperChatEvent>,
-        val velocityClips: List<ClipCandidate>,
-        val totalMessagesScanned: Int
-    )
+data class LiveChatParseOutput(
+    val superChats: List<SuperChatEvent>,
+    val velocitySpikes: List<ChatVelocitySpike>,
+    val totalMessagesParsed: Int
+)
 
-    fun streamParseLiveChat(
-        chatFile: File,
-        durationSec: Double,
-        minDonationUsdEquivalent: Double = 0.0
-    ): LiveChatScanResult {
+object SubtitleAndChatParser {
+
+    /**
+     * RAM-safe line-by-line streaming parser for YouTube .live_chat.json files (100MB+ safe).
+     * Extracts Super Chats/Stickers and computes 10-second chat velocity buckets in a single pass.
+     */
+    fun parseLiveChatStreaming(chatFile: File, durationSec: Double): LiveChatParseOutput {
         if (!chatFile.exists() || chatFile.length() == 0L) {
-            return LiveChatScanResult(emptyList(), emptyList(), 0)
+            return LiveChatParseOutput(emptyList(), emptyList(), 0)
         }
 
         val superChats = mutableListOf<SuperChatEvent>()
         val bucketCounts = HashMap<Int, Int>()
-        val bucketSampleMessages = HashMap<Int, MutableList<String>>()
         var totalMessages = 0
 
         BufferedReader(
             InputStreamReader(FileInputStream(chatFile), StandardCharsets.UTF_8),
             65536
         ).use { reader ->
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                val trimmed = line?.trim().orEmpty()
-                if (trimmed.isEmpty() || !trimmed.startsWith("{")) continue
-
-                runCatching {
-                    val root = JSONObject(trimmed)
-                    val replayAction = root.optJSONObject("replayChatItemAction") ?: return@runCatching
-                    val offsetMs = replayAction.optString("videoOffsetTimeMsec").toDoubleOrNull()
-                        ?: replayAction.optDouble("videoOffsetTimeMsec", Double.NaN)
-                    if (offsetMs.isNaN() || offsetMs < 0.0) return@runCatching
-
-                    val offsetSec = offsetMs / 1000.0
-                    if (durationSec > 0.0 && offsetSec > durationSec + 30.0) return@runCatching
-
-                    val actions = replayAction.optJSONArray("actions") ?: return@runCatching
-                    for (i in 0 until actions.length()) {
-                        val action = actions.optJSONObject(i) ?: continue
-                        val addItem = action.optJSONObject("addChatItemAction") ?: continue
-                        val item = addItem.optJSONObject("item") ?: continue
-
-                        val textRenderer = item.optJSONObject("liveChatTextMessageRenderer")
-                        if (textRenderer != null) {
-                            totalMessages++
-                            val bucket = (offsetSec / 10.0).toInt()
-                            bucketCounts[bucket] = (bucketCounts[bucket] ?: 0) + 1
-                            val msg = extractRunsText(textRenderer.optJSONObject("message"))
-                            if (msg.isNotBlank()) {
-                                val samples = bucketSampleMessages.getOrPut(bucket) { mutableListOf() }
-                                if (samples.size < 3) samples.add(msg.take(60))
-                            }
-                        }
-
-                        val paidMsg = item.optJSONObject("liveChatPaidMessageRenderer")
-                        if (paidMsg != null) {
-                            totalMessages++
-                            val bucket = (offsetSec / 10.0).toInt()
-                            bucketCounts[bucket] = (bucketCounts[bucket] ?: 0) + 3
-
-                            val author = extractSimpleOrRunsText(paidMsg.optJSONObject("authorName"))
-                                .ifBlank { "Supporter" }
-                            val amountRaw = extractSimpleOrRunsText(paidMsg.optJSONObject("purchaseAmountText"))
-                            val (currency, numeric) = parseCurrencyAmount(amountRaw)
-                            val message = extractRunsText(paidMsg.optJSONObject("message"))
-
-                            if (numeric >= minDonationUsdEquivalent) {
-                                superChats.add(
-                                    SuperChatEvent(
-                                        authorName = author,
-                                        amountText = amountRaw.ifBlank { "$5.00" },
-                                        amountNumeric = numeric,
-                                        currency = currency,
-                                        message = message,
-                                        offsetSec = offsetSec,
-                                        isSticker = false
-                                    )
-                                )
-                            }
-                        }
-
-                        val sticker = item.optJSONObject("liveChatPaidStickerRenderer")
-                        if (sticker != null) {
-                            totalMessages++
-                            val bucket = (offsetSec / 10.0).toInt()
-                            bucketCounts[bucket] = (bucketCounts[bucket] ?: 0) + 3
-
-                            val author = extractSimpleOrRunsText(sticker.optJSONObject("authorName"))
-                                .ifBlank { "Supporter" }
-                            val amountRaw = extractSimpleOrRunsText(sticker.optJSONObject("purchaseAmountText"))
-                            val (currency, numeric) = parseCurrencyAmount(amountRaw)
-                            val stickerLabel = sticker.optJSONObject("sticker")
-                                ?.optJSONObject("accessibility")
-                                ?.optJSONObject("accessibilityData")
-                                ?.optString("label")
-                                .orEmpty()
-                                .ifBlank { "Super Sticker" }
-
-                            if (numeric >= minDonationUsdEquivalent) {
-                                superChats.add(
-                                    SuperChatEvent(
-                                        authorName = author,
-                                        amountText = amountRaw.ifBlank { "$5.00" },
-                                        amountNumeric = numeric,
-                                        currency = currency,
-                                        message = stickerLabel,
-                                        offsetSec = offsetSec,
-                                        isSticker = true
-                                    )
-                                )
-                            }
-                        }
+            var line: String? = reader.readLine()
+            while (line != null) {
+                val trimmed = line.trim()
+                if (trimmed.startsWith("{")) {
+                    parseChatJsonLine(trimmed, durationSec, superChats, bucketCounts)?.let { incremented ->
+                        totalMessages += incremented
                     }
                 }
+                line = reader.readLine()
             }
         }
 
-        val velocityClips = buildVelocitySpikeClips(
-            bucketCounts = bucketCounts,
-            bucketSamples = bucketSampleMessages,
-            durationSec = durationSec
-        )
-
-        return LiveChatScanResult(
+        val spikes = detectVelocitySpikes(bucketCounts, durationSec)
+        return LiveChatParseOutput(
             superChats = superChats.sortedBy { it.offsetSec },
-            velocityClips = velocityClips,
-            totalMessagesScanned = totalMessages
+            velocitySpikes = spikes,
+            totalMessagesParsed = totalMessages
         )
     }
 
-    private fun buildVelocitySpikeClips(
+    private fun parseChatJsonLine(
+        jsonLine: String,
+        durationSec: Double,
+        superChatsOut: MutableList<SuperChatEvent>,
+        bucketCountsOut: MutableMap<Int, Int>
+    ): Int? {
+        return try {
+            val root = JSONObject(jsonLine)
+            val replayAction = root.optJSONObject("replayChatItemAction") ?: return null
+            val offsetMsStr = replayAction.optString("videoOffsetTimeMsec", "")
+            val offsetMs = offsetMsStr.toLongOrNull() ?: return null
+            if (offsetMs < 0L) return null
+            val offsetSec = offsetMs / 1000.0
+            if (durationSec > 0.0 && offsetSec > durationSec + 30.0) return null
+
+            val actions = replayAction.optJSONArray("actions") ?: return null
+            var counted = 0
+
+            for (i in 0 until actions.length()) {
+                val actionObj = actions.optJSONObject(i) ?: continue
+                val addItem = actionObj.optJSONObject("addChatItemAction") ?: continue
+                val item = addItem.optJSONObject("item") ?: continue
+
+                val bucketIndex = (offsetSec / 10.0).toInt().coerceAtLeast(0)
+
+                val paidMessage = item.optJSONObject("liveChatPaidMessageRenderer")
+                val paidSticker = item.optJSONObject("liveChatPaidStickerRenderer")
+                val textMessage = item.optJSONObject("liveChatTextMessageRenderer")
+                val memberMessage = item.optJSONObject("liveChatMembershipItemRenderer")
+
+                if (paidMessage != null) {
+                    counted++
+                    bucketCountsOut[bucketIndex] = (bucketCountsOut[bucketIndex] ?: 0) + 1
+                    extractSuperChat(paidMessage, offsetSec, isSticker = false)?.let { superChatsOut.add(it) }
+                } else if (paidSticker != null) {
+                    counted++
+                    bucketCountsOut[bucketIndex] = (bucketCountsOut[bucketIndex] ?: 0) + 1
+                    extractSuperChat(paidSticker, offsetSec, isSticker = true)?.let { superChatsOut.add(it) }
+                } else if (textMessage != null || memberMessage != null) {
+                    counted++
+                    bucketCountsOut[bucketIndex] = (bucketCountsOut[bucketIndex] ?: 0) + 1
+                }
+            }
+            counted
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun extractSuperChat(renderer: JSONObject, offsetSec: Double, isSticker: Boolean): SuperChatEvent? {
+        val donor = renderer.optJSONObject("authorName")
+            ?.optString("simpleText")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: "Supporter"
+
+        val amountDisplay = renderer.optJSONObject("purchaseAmountText")
+            ?.optString("simpleText")
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?: return null
+
+        val messageRuns = renderer.optJSONObject("message")?.optJSONArray("runs")
+        val messageText = buildString {
+            if (messageRuns != null) {
+                for (i in 0 until messageRuns.length()) {
+                    val run = messageRuns.optJSONObject(i) ?: continue
+                    append(run.optString("text"))
+                }
+            }
+        }.trim().ifBlank { if (isSticker) "[Super Sticker]" else "" }
+
+        val (currency, usdApprox) = parseCurrencyToUsdApprox(amountDisplay)
+
+        return SuperChatEvent(
+            donor = donor,
+            amountDisplay = amountDisplay,
+            usdApprox = usdApprox,
+            currency = currency,
+            message = messageText,
+            offsetSec = offsetSec
+        )
+    }
+
+    private fun parseCurrencyToUsdApprox(display: String): Pair<String, Double> {
+        val numericStr = display.replace(",", "")
+            .let { Regex("""(\d+(?:\.\d+)?)""").find(it)?.groupValues?.getOrNull(1) }
+        val rawValue = numericStr?.toDoubleOrNull() ?: 1.0
+
+        return when {
+            display.contains("¥") || display.contains("JPY", ignoreCase = true) -> "JPY" to (rawValue / 150.0)
+            display.contains("₩") || display.contains("KRW", ignoreCase = true) -> "KRW" to (rawValue / 1380.0)
+            display.contains("₹") || display.contains("INR", ignoreCase = true) -> "INR" to (rawValue / 84.0)
+            display.contains("€") || display.contains("EUR", ignoreCase = true) -> "EUR" to (rawValue * 1.08)
+            display.contains("£") || display.contains("GBP", ignoreCase = true) -> "GBP" to (rawValue * 1.27)
+            display.contains("A$") || display.contains("AUD", ignoreCase = true) -> "AUD" to (rawValue * 0.65)
+            display.contains("CA$") || display.contains("CAD", ignoreCase = true) -> "CAD" to (rawValue * 0.72)
+            display.contains("R$") || display.contains("BRL", ignoreCase = true) -> "BRL" to (rawValue / 5.7)
+            display.contains("₱") || display.contains("PHP", ignoreCase = true) -> "PHP" to (rawValue / 58.0)
+            else -> "USD" to rawValue
+        }
+    }
+
+    private fun detectVelocitySpikes(
         bucketCounts: Map<Int, Int>,
-        bucketSamples: Map<Int, List<String>>,
         durationSec: Double
-    ): List<ClipCandidate> {
+    ): List<ChatVelocitySpike> {
         if (bucketCounts.size < 4) return emptyList()
 
         val values = bucketCounts.values.map { it.toDouble() }
         val mean = values.average()
-        val stdDev = sqrt(values.map { (it - mean) * (it - mean) }.average()).coerceAtLeast(1.0)
-        val threshold = mean + 1.8 * stdDev
+        val variance = values.sumOf { (it - mean) * (it - mean) } / values.size.toDouble()
+        val stdDev = sqrt(variance)
+        val threshold = maxOf(6.0, mean + 2.1 * stdDev)
 
-        val topBuckets = bucketCounts.entries
-            .filter { it.value.toDouble() >= threshold && it.value >= 4 }
-            .sortedByDescending { it.value }
+        val spikedBuckets = bucketCounts.entries
+            .filter { it.value.toDouble() >= threshold }
+            .sortedBy { it.key }
 
-        val clips = mutableListOf<ClipCandidate>()
-        for ((bucket, count) in topBuckets) {
-            if (clips.size >= 10) break
-            val centerSec = bucket * 10.0 + 5.0
-            if (clips.any { kotlin.math.abs(((it.startSec + it.endSec) / 2.0) - centerSec) < 25.0 }) {
-                continue
-            }
-            val start = (centerSec - 14.0).coerceAtLeast(0.0)
-            val end = if (durationSec > 0.0) {
-                (centerSec + 18.0).coerceAtMost(durationSec)
+        if (spikedBuckets.isEmpty()) return emptyList()
+
+        val merged = mutableListOf<ChatVelocitySpike>()
+        var currentStartBucket = spikedBuckets.first().key
+        var currentEndBucket = spikedBuckets.first().key
+        var peakCount = spikedBuckets.first().value
+
+        for (i in 1 until spikedBuckets.size) {
+            val (bucket, count) = spikedBuckets[i]
+            if (bucket <= currentEndBucket + 2) {
+                currentEndBucket = bucket
+                if (count > peakCount) peakCount = count
             } else {
-                centerSec + 18.0
-            }
-            val zScore = ((count - mean) / stdDev).coerceIn(1.5, 5.0)
-            val hypeScore = (72 + (zScore * 5.5)).toInt().coerceIn(70, 98)
-            val sampleText = bucketSamples[bucket]?.joinToString(" | ").orEmpty()
-
-            clips.add(
-                ClipCandidate(
-                    title = "Chat Hype Surge (${count} msgs/10s)",
-                    startSec = start,
-                    endSec = end,
-                    score = hypeScore,
-                    signals = listOf(SignalType.CHAT_HYPE),
-                    transcriptSnippet = sampleText,
-                    reason = String.format(
-                        Locale.US,
-                        "Chat velocity hit %d msgs/10s (%.1fx average)",
-                        count,
-                        count / mean.coerceAtLeast(1.0)
-                    )
-                )
-            )
-        }
-        return clips.sortedBy { it.startSec }
-    }
-
-    fun parseSubtitleFile(subFile: File): List<TranscriptSegment> {
-        if (!subFile.exists() || subFile.length() == 0L) return emptyList()
-
-        val segments = mutableListOf<TranscriptSegment>()
-        var currentStart = -1.0
-        var currentEnd = -1.0
-        val currentText = StringBuilder()
-        var lastCleanLine = ""
-
-        BufferedReader(
-            InputStreamReader(FileInputStream(subFile), StandardCharsets.UTF_8),
-            32768
-        ).use { reader ->
-            var line: String?
-            while (reader.readLine().also { line = it } != null) {
-                val raw = line?.trim().orEmpty()
-                if (raw.contains("-->")) {
-                    if (currentStart >= 0.0 && currentText.isNotEmpty()) {
-                        val clean = cleanCaptionText(currentText.toString())
-                        if (clean.isNotBlank() && clean != lastCleanLine) {
-                            segments.add(TranscriptSegment(currentStart, currentEnd, clean))
-                            lastCleanLine = clean
-                        }
-                    }
-                    currentText.clear()
-                    val times = raw.split("-->")
-                    currentStart = TimeUtils.parseVttTimestamp(times[0].trim().split(" ").first())
-                    currentEnd = TimeUtils.parseVttTimestamp(times[1].trim().split(" ").first())
-                } else if (
-                    raw.isNotEmpty() &&
-                    !raw.startsWith("WEBVTT") &&
-                    !raw.startsWith("Kind:") &&
-                    !raw.startsWith("Language:") &&
-                    raw.toIntOrNull() == null &&
-                    currentStart >= 0.0
-                ) {
-                    if (currentText.isNotEmpty()) currentText.append(' ')
-                    currentText.append(raw)
-                }
+                merged.add(buildSpike(currentStartBucket, currentEndBucket, peakCount, mean, durationSec))
+                currentStartBucket = bucket
+                currentEndBucket = bucket
+                peakCount = count
             }
         }
-
-        if (currentStart >= 0.0 && currentText.isNotEmpty()) {
-            val clean = cleanCaptionText(currentText.toString())
-            if (clean.isNotBlank() && clean != lastCleanLine) {
-                segments.add(TranscriptSegment(currentStart, currentEnd, clean))
-            }
-        }
-        return segments
+        merged.add(buildSpike(currentStartBucket, currentEndBucket, peakCount, mean, durationSec))
+        return merged.sortedByDescending { it.messageCount }.take(12)
     }
 
-    private fun cleanCaptionText(raw: String): String {
-        return raw.replace(Regex("<[^>]+>"), "")
-            .replace("&amp;", "&")
-            .replace("&quot;", "\"")
-            .replace("&#39;", "'")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
-
-    private fun extractSimpleOrRunsText(obj: JSONObject?): String {
-        if (obj == null) return ""
-        val simple = obj.optString("simpleText")
-        if (simple.isNotBlank()) return simple
-        return extractRunsText(obj)
-    }
-
-    private fun extractRunsText(obj: JSONObject?): String {
-        if (obj == null) return ""
-        val runs = obj.optJSONArray("runs") ?: return obj.optString("simpleText")
-        val sb = StringBuilder()
-        for (i in 0 until runs.length()) {
-            val part = runs.optJSONObject(i) ?: continue
-            val text = part.optString("text")
-            if (text.isNotEmpty()) {
-                sb.append(text)
-            } else {
-                val emoji = part.optJSONObject("emoji")?.optJSONArray("shortcuts")?.optString(0)
-                if (!emoji.isNullOrBlank()) sb.append(emoji)
-            }
-        }
-        return sb.toString().trim()
-    }
-
-    private fun parseCurrencyAmount(raw: String): Pair<String, Double> {
-        val cleaned = raw.trim()
-        val currency = cleaned.takeWhile { !it.isDigit() && it != '.' && it != ',' }
-            .trim()
-            .ifBlank { "$" }
-        val numStr = cleaned.replace(Regex("[^0-9.]"), "")
-        val amount = numStr.toDoubleOrNull() ?: 0.0
-        return Pair(currency, amount)
-    }
-}
-'''
-
-FILES["app/src/main/java/com/clippulse/studio/engine/ConsensusEngine.kt"] = r'''package com.clippulse.studio.engine
-
-import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.SignalType
-
-object ConsensusEngine {
-
-    fun mergeAndRank(
-        candidates: List<ClipCandidate>,
-        mergeGapSec: Double = 18.0
-    ): List<ClipCandidate> {
-        if (candidates.isEmpty()) return emptyList()
-
-        val sorted = candidates.sortedBy { it.startSec }
-        val merged = mutableListOf<ClipCandidate>()
-
-        for (next in sorted) {
-            if (merged.isEmpty()) {
-                merged.add(next)
-                continue
-            }
-
-            val current = merged.last()
-            val overlapsOrClose = next.startSec <= (current.endSec + mergeGapSec)
-
-            if (overlapsOrClose) {
-                val combinedSignals = (current.signals + next.signals).distinct()
-                val isMulti = combinedSignals.size >= 2
-                val baseMax = maxOf(current.score, next.score)
-                val boostedScore = if (isMulti) {
-                    (baseMax + (combinedSignals.size - 1) * 9).coerceAtMost(100)
-                } else {
-                    baseMax
-                }
-
-                val preferredSuperChat = current.superChat ?: next.superChat
-                val preferredTitle = when {
-                    preferredSuperChat != null ->
-                        "${preferredSuperChat.amountText} Super Chat • ${preferredSuperChat.authorName}"
-                    current.signals.contains(SignalType.AI_PICK) -> current.title
-                    next.signals.contains(SignalType.AI_PICK) -> next.title
-                    current.score >= next.score -> current.title
-                    else -> next.title
-                }
-                val combinedSnippet = listOf(current.transcriptSnippet, next.transcriptSnippet)
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .joinToString(" • ")
-                    .take(300)
-
-                val combinedReason = listOf(current.reason, next.reason)
-                    .filter { it.isNotBlank() }
-                    .distinct()
-                    .joinToString(" + ")
-
-                merged[merged.lastIndex] = current.copy(
-                    title = preferredTitle,
-                    startSec = minOf(current.startSec, next.startSec),
-                    endSec = maxOf(current.endSec, next.endSec),
-                    score = boostedScore,
-                    signals = combinedSignals,
-                    isMultiSignal = isMulti,
-                    superChat = preferredSuperChat,
-                    transcriptSnippet = combinedSnippet,
-                    reason = combinedReason
-                )
-            } else {
-                merged.add(next)
-            }
-        }
-
-        return merged.sortedWith(
-            compareByDescending<ClipCandidate> { it.isMultiSignal }
-                .thenByDescending { it.score }
-                .thenBy { it.startSec }
+    private fun buildSpike(
+        startBucket: Int,
+        endBucket: Int,
+        peakCount: Int,
+        mean: Double,
+        durationSec: Double
+    ): ChatVelocitySpike {
+        val startSec = (startBucket * 10.0).coerceAtLeast(0.0)
+        val rawEnd = (endBucket + 1) * 10.0
+        val endSec = if (durationSec > 0.0) rawEnd.coerceAtMost(durationSec) else rawEnd
+        val multiplier = if (mean > 0.1) peakCount.toDouble() / mean else 3.0
+        return ChatVelocitySpike(
+            startSec = startSec,
+            endSec = endSec.coerceAtLeast(startSec + 10.0),
+            messageCount = peakCount,
+            multiplierOverAvg = multiplier
         )
     }
-}
-'''
 
-FILES["app/src/main/java/com/clippulse/studio/engine/VideoAnalysisEngine.kt"] = r'''package com.clippulse.studio.engine
+    fun parseVttSubtitles(vttFile: File): List<TranscriptCue> {
+        if (!vttFile.exists()) return emptyList()
+        val rawCues = mutableListOf<TranscriptCue>()
+        val timeRegex = Regex("""(?:(\d+):)?(\d{2}):(\d{2}\.\d+)\s*-->\s*(?:(\d+):)?(\d{2}):(\d{2}\.\d+)""")
+        val tagRegex = Regex("""<[^>]+>""")
+
+        var currentStart: Double? = null
+        var currentEnd: Double? = null
+        val textBuffer = StringBuilder()
+
+        vttFile.forEachLine(StandardCharsets.UTF_8) { rawLine ->
+            val line = rawLine.trim()
+            val match = timeRegex.find(line)
+            if (match != null) {
+                val prevStart = currentStart
+                val prevEnd = currentEnd
+                val prevText = textBuffer.toString().trim()
+                if (prevStart != null && prevEnd != null && prevText.isNotEmpty()) {
+                    rawCues.add(TranscriptCue(prevStart, prevEnd, prevText))
+                }
+                textBuffer.clear()
+                currentStart = parseVttGroupSeconds(
+                    match.groupValues[1],
+                    match.groupValues[2],
+                    match.groupValues[3]
+                )
+                currentEnd = parseVttGroupSeconds(
+                    match.groupValues[4],
+                    match.groupValues[5],
+                    match.groupValues[6]
+                )
+            } else if (
+                line.isNotEmpty() &&
+                !line.startsWith("WEBVTT") &&
+                !line.startsWith("Kind:") &&
+                !line.startsWith("Language:") &&
+                line.toIntOrNull() == null
+            ) {
+                val cleaned = line.replace(tagRegex, "")
+                    .replace("&amp;", "&")
+                    .replace("&gt;", ">")
+                    .replace("&lt;", "<")
+                    .replace("&#39;", "'")
+                    .replace("&quot;", "\"")
+                    .trim()
+                if (cleaned.isNotEmpty()) {
+                    if (textBuffer.isNotEmpty()) textBuffer.append(' ')
+                    textBuffer.append(cleaned)
+                }
+            }
+        }
+
+        val lastStart = currentStart
+        val lastEnd = currentEnd
+        val lastText = textBuffer.toString().trim()
+        if (lastStart != null && lastEnd != null && lastText.isNotEmpty()) {
+            rawCues.add(TranscriptCue(lastStart, lastEnd, lastText))
+        }
+
+        // Deduplicate rolling auto-caption lines
+        val deduped = mutableListOf<TranscriptCue>()
+        for (cue in rawCues) {
+            val prev = deduped.lastOrNull()
+            if (prev != null && (prev.text == cue.text || cue.text.startsWith(prev.text))) {
+                deduped[deduped.lastIndex] = cue.copy(startSec = prev.startSec)
+            } else {
+                deduped.add(cue)
+            }
+        }
+        return deduped
+    }
+
+    private fun parseVttGroupSeconds(hoursStr: String, minStr: String, secStr: String): Double {
+        val h = hoursStr.toDoubleOrNull() ?: 0.0
+        val m = minStr.toDoubleOrNull() ?: 0.0
+        val s = secStr.toDoubleOrNull() ?: 0.0
+        return h * 3600.0 + m * 60.0 + s
+    }
+
+    fun extractQuoteAround(cues: List<TranscriptCue>, startSec: Double, endSec: Double): String {
+        if (cues.isEmpty()) return ""
+        val matching = cues.filter { it.endSec >= startSec && it.startSec <= endSec }
+        if (matching.isEmpty()) return ""
+        return matching.joinToString(" ") { it.text }.trim().take(220)
+    }
+}
+""",
+    )
+
+    write_file(
+        f"{base}/engine/VideoAnalysisEngine.kt",
+        """
+package com.clippulse.studio.engine
 
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.net.Uri
-import com.clippulse.studio.ClipPulseApp
-import com.clippulse.studio.model.AiSettings
+import android.provider.OpenableColumns
+import com.clippulse.studio.model.AiConfig
 import com.clippulse.studio.model.ClipCandidate
 import com.clippulse.studio.model.DetectionMode
 import com.clippulse.studio.model.HeatmapPoint
-import com.clippulse.studio.model.SignalType
-import com.clippulse.studio.model.TranscriptSegment
+import com.clippulse.studio.model.PaddingPreset
+import com.clippulse.studio.model.SignalSource
+import com.clippulse.studio.model.SuperChatEvent
+import com.clippulse.studio.model.SuperChatThreshold
+import com.clippulse.studio.model.TimeFormatter
+import com.clippulse.studio.model.TranscriptCue
 import com.clippulse.studio.model.VideoAnalysisResult
 import com.clippulse.studio.network.UniversalAiClient
+import com.yausername.ffmpeg.FFmpeg
+import com.yausername.ffmpeg.FFmpegExecuteRequest
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
 import java.util.Locale
+import java.util.UUID
+import kotlin.math.sqrt
 
 class VideoAnalysisEngine(
-    private val context: Context,
-    private val aiClient: UniversalAiClient,
-    private val ffmpegRunner: FfmpegRunner
+    private val aiClient: UniversalAiClient = UniversalAiClient()
 ) {
 
     suspend fun analyzeRemoteUrl(
-        url: String,
+        context: Context,
+        rawUrl: String,
         mode: DetectionMode,
-        aiSettings: AiSettings,
-        minSuperChatUsd: Double,
+        superChatThreshold: SuperChatThreshold,
+        paddingPreset: PaddingPreset,
         customAiPrompt: String,
-        onProgress: (String) -> Unit
+        aiConfig: AiConfig,
+        onProgress: (Float, String) -> Unit
     ): Result<VideoAnalysisResult> = withContext(Dispatchers.IO) {
-        runCatching {
-            onProgress("Initializing yt-dlp & FFmpeg engines...")
-            ClipPulseApp.ensureEnginesInitialized(context).getOrThrow()
+        try {
+            onProgress(0.08f, "Initializing yt-dlp zero-download engine...")
+            EngineInitializer.ensureInitialized(context).getOrThrow()
 
             val workDir = File(context.cacheDir, "analysis_${System.currentTimeMillis()}").apply {
                 mkdirs()
             }
 
-            onProgress("Fetching metadata, heatmap & live chat (zero video download)...")
-            val request = YoutubeDLRequest(url).apply {
-                addOption("--skip-download")
-                addOption("--write-info-json")
-                addOption("--write-auto-sub")
-                addOption("--write-subs")
-                addOption("--sub-langs", "en.*,live_chat")
-                addOption("--no-playlist")
-                addOption("--no-warnings")
-                addOption("-o", File(workDir, "source").absolutePath)
-            }
-
-            val ytResponse = YoutubeDL.getInstance().execute(request) { _, _, line ->
-                if (line != null && (line.contains("Writing") || line.contains("Downloading"))) {
-                    onProgress(line.take(72))
+            try {
+                onProgress(0.22f, "Fetching metadata, heatmap & subtitles (zero video download)...")
+                val outputTemplate = File(workDir, "meta.%(ext)s").absolutePath
+                val request = YoutubeDLRequest(rawUrl.trim()).apply {
+                    addOption("--skip-download")
+                    addOption("--write-info-json")
+                    addOption("--write-auto-sub")
+                    addOption("--write-subs")
+                    addOption("--sub-langs", "en.*,live_chat")
+                    addOption("--no-playlist")
+                    addOption("--no-warnings")
+                    addOption("-o", outputTemplate)
                 }
-            }
 
-            val infoFile = workDir.listFiles()?.firstOrNull { it.name.endsWith(".info.json") }
-                ?: error("Could not retrieve video metadata. Verify the link or update yt-dlp in settings.\n${ytResponse.err.take(180)}")
+                YoutubeDL.getInstance().execute(request)
 
-            val infoJson = JSONObject(infoFile.readText())
-            val title = infoJson.optString("title").ifBlank { "Untitled Video" }
-            val channel = infoJson.optString("uploader")
-                .ifBlank { infoJson.optString("channel").ifBlank { "Creator" } }
-            val durationSec = infoJson.optDouble("duration", 0.0).coerceAtLeast(1.0)
+                val infoFile = workDir.listFiles()?.firstOrNull { it.name.endsWith(".info.json") }
+                    ?: return@withContext Result.failure(
+                        IllegalStateException("Could not extract video metadata. Check the URL or update yt-dlp in Settings.")
+                    )
 
-            onProgress("Parsing viewer replay heatmap curve...")
-            val heatmap = parseHeatmap(infoJson)
+                onProgress(0.42f, "Parsing replay heatmap & chapter cues...")
+                val infoJson = JSONObject(infoFile.readText(Charsets.UTF_8))
+                val videoTitle = infoJson.optString("title").ifBlank { "Untitled Stream / Video" }
+                val channelName = infoJson.optString("uploader")
+                    .ifBlank { infoJson.optString("channel").ifBlank { "Creator" } }
+                val durationSec = infoJson.optDouble("duration", 0.0).coerceAtLeast(1.0)
 
-            onProgress("Parsing timed transcript captions...")
-            val subFiles = workDir.listFiles()?.filter {
-                it.name.endsWith(".vtt") || it.name.endsWith(".srt")
-            }.orEmpty()
-            val transcript = subFiles
-                .sortedBy { if (it.name.contains(".en.")) 0 else 1 }
-                .firstOrNull()
-                ?.let { ChatAndSubtitleParser.parseSubtitleFile(it) }
-                .orEmpty()
+                val heatmap = parseHeatmapFromInfoJson(infoJson)
+                val rawCandidates = mutableListOf<ClipCandidate>()
 
-            onProgress("Stream-scanning live chat & Super Chats...")
-            val chatFile = workDir.listFiles()?.firstOrNull { it.name.endsWith(".live_chat.json") }
-            val chatScan = if (chatFile != null) {
-                ChatAndSubtitleParser.streamParseLiveChat(
-                    chatFile = chatFile,
-                    durationSec = durationSec,
-                    minDonationUsdEquivalent = minSuperChatUsd
-                )
-            } else {
-                ChatAndSubtitleParser.LiveChatScanResult(emptyList(), emptyList(), 0)
-            }
+                // 1. Most Replayed (Heatmap) Detector
+                if (heatmap.isNotEmpty()) {
+                    rawCandidates.addAll(detectHeatmapPeaks(heatmap, durationSec))
+                } else {
+                    // Fallback chapter/timestamp detector for Facebook & non-heatmap videos
+                    rawCandidates.addAll(detectChaptersAndDescriptionCues(infoJson, durationSec))
+                }
 
-            val allCandidates = mutableListOf<ClipCandidate>()
+                // 2. Streaming Super Chat + Chat Velocity Detector
+                onProgress(0.58f, "Stream-scanning live chat & Super Chats (RAM-safe)...")
+                val liveChatFile = workDir.listFiles()?.firstOrNull { it.name.endsWith(".live_chat.json") }
+                var allSuperChats = emptyList<SuperChatEvent>()
+                if (liveChatFile != null) {
+                    val chatOutput = SubtitleAndChatParser.parseLiveChatStreaming(liveChatFile, durationSec)
+                    allSuperChats = chatOutput.superChats
 
-            if (mode == DetectionMode.ALL || mode == DetectionMode.HEATMAP) {
-                allCandidates += extractHeatmapClips(heatmap, transcript, durationSec)
-            }
+                    for (spike in chatOutput.velocitySpikes) {
+                        rawCandidates.add(
+                            ClipCandidate(
+                                id = UUID.randomUUID().toString(),
+                                title = "Chat Hype Surge (${spike.messageCount} msgs/10s)",
+                                startSec = (spike.startSec - 4.0).coerceAtLeast(0.0),
+                                endSec = (spike.endSec + 10.0).coerceAtMost(durationSec),
+                                hypeScore = (70 + (spike.multiplierOverAvg * 6.0).toInt()).coerceIn(65, 96),
+                                signals = listOf(SignalSource.CHAT_HYPE),
+                                isMultiSignal = false,
+                                reason = String.format(
+                                    Locale.US,
+                                    "Chat exploded to %.1fx average message rate",
+                                    spike.multiplierOverAvg
+                                )
+                            )
+                        )
+                    }
+                }
 
-            if ((mode == DetectionMode.ALL || mode == DetectionMode.SUPER_CHAT) && chatScan.superChats.isNotEmpty()) {
-                onProgress("Aligning ${chatScan.superChats.size} Super Chats with streamer reactions...")
-                val alignments = aiClient.alignSuperChats(
-                    settings = aiSettings,
-                    superChats = chatScan.superChats,
-                    transcript = transcript,
-                    durationSec = durationSec
-                )
+                // 3. Subtitle / Transcript Parser
+                onProgress(0.70f, "Indexing spoken transcript cues...")
+                val vttFile = workDir.listFiles()?.firstOrNull { it.name.endsWith(".vtt") }
+                val cues = if (vttFile != null) {
+                    SubtitleAndChatParser.parseVttSubtitles(vttFile)
+                } else {
+                    emptyList()
+                }
 
-                for (sc in chatScan.superChats) {
-                    val aligned = alignments[sc.id]
+                // Filter Super Chats by threshold & optionally align reaction with AI
+                val filteredSuperChats = allSuperChats.filter { it.usdApprox >= superChatThreshold.minUsd }
+                val alignedRanges = if (aiConfig.canUseAi() && filteredSuperChats.isNotEmpty() && cues.isNotEmpty()) {
+                    onProgress(0.78f, "AI-aligning Super Chat donor reactions...")
+                    aiClient.alignSuperChatReactions(aiConfig, filteredSuperChats, cues, durationSec)
+                } else {
+                    emptyMap()
+                }
+
+                for (sc in filteredSuperChats) {
+                    val aligned = alignedRanges[sc.offsetSec]
                     val start = aligned?.first ?: (sc.offsetSec - 4.0).coerceAtLeast(0.0)
-                    val end = aligned?.second ?: (sc.offsetSec + 26.0).coerceAtMost(durationSec)
-                    val snippet = transcript.filter { it.endSec >= start && it.startSec <= end }
-                        .joinToString(" ") { it.text }
-                        .take(240)
-                    val donationBoost = (sc.amountNumeric.coerceAtMost(100.0) * 0.25).toInt()
-                    val score = (76 + donationBoost).coerceIn(75, 100)
-
-                    allCandidates.add(
+                    val end = aligned?.second ?: (sc.offsetSec + 22.0).coerceAtMost(durationSec)
+                    val baseScore = when {
+                        sc.usdApprox >= 50.0 -> 95
+                        sc.usdApprox >= 25.0 -> 90
+                        sc.usdApprox >= 10.0 -> 84
+                        sc.usdApprox >= 5.0 -> 78
+                        else -> 72
+                    }
+                    rawCandidates.add(
                         ClipCandidate(
-                            title = "${sc.amountText} Super Chat • ${sc.authorName}",
+                            id = UUID.randomUUID().toString(),
+                            title = "${sc.donor} • ${sc.amountDisplay}",
                             startSec = start,
                             endSec = end,
-                            score = score,
-                            signals = listOf(SignalType.SUPER_CHAT),
+                            hypeScore = baseScore,
+                            signals = listOf(SignalSource.SUPER_CHAT),
+                            isMultiSignal = false,
                             superChat = sc,
-                            transcriptSnippet = snippet,
                             reason = if (aligned != null) {
-                                "AI-aligned streamer reaction to ${sc.authorName}"
+                                "Super Chat aligned with streamer reaction"
                             } else {
-                                "Donation at ${TimeUtils.formatTimestamp(sc.offsetSec)}"
+                                "Paid Super Chat highlight (${sc.amountDisplay})"
                             }
                         )
                     )
                 }
-            }
 
-            if (mode == DetectionMode.ALL || mode == DetectionMode.CHAT_HYPE) {
-                allCandidates += chatScan.velocityClips
-            }
+                // 4. AI Viral Picks & Custom Prompt Search
+                if (aiConfig.canUseAi() && cues.isNotEmpty() &&
+                    (mode == DetectionMode.SMART_ALL || mode == DetectionMode.AI_CUSTOM)
+                ) {
+                    onProgress(0.86f, "Running AI viral hook & prompt scan...")
+                    val peakCenters = rawCandidates.map { (it.startSec + it.endSec) / 2.0 }
+                    val aiSuggestions = aiClient.findViralAndCustomClips(
+                        config = aiConfig,
+                        videoTitle = videoTitle,
+                        durationSec = durationSec,
+                        cues = cues,
+                        peakCentersSec = peakCenters,
+                        customPrompt = if (mode == DetectionMode.AI_CUSTOM) customAiPrompt else ""
+                    )
+                    for (pick in aiSuggestions) {
+                        rawCandidates.add(
+                            ClipCandidate(
+                                id = UUID.randomUUID().toString(),
+                                title = pick.title,
+                                startSec = pick.startSec,
+                                endSec = pick.endSec,
+                                hypeScore = pick.score,
+                                signals = listOf(SignalSource.AI_PICK),
+                                isMultiSignal = false,
+                                reason = pick.reason
+                            )
+                        )
+                    }
+                }
 
-            val hasNoSocialSignals = heatmap.isEmpty() && chatScan.superChats.isEmpty() && chatScan.velocityClips.isEmpty()
-            if (mode == DetectionMode.AUDIO_PEAK || (mode == DetectionMode.ALL && hasNoSocialSignals)) {
-                onProgress("Scanning audio/chapter highlights...")
-                allCandidates += extractChapterOrTranscriptHighlights(infoJson, transcript, durationSec)
-            }
-
-            if ((mode == DetectionMode.ALL || mode == DetectionMode.AI_VIRAL) && !aiSettings.offlineMode) {
-                onProgress("Running AI Viral Hook & Topic detection...")
-                val anchors = allCandidates.map { (it.startSec + it.endSec) / 2.0 }
-                allCandidates += aiClient.detectViralAndCustomClips(
-                    settings = aiSettings,
-                    videoTitle = title,
-                    durationSec = durationSec,
-                    transcript = transcript,
-                    anchorTimestampsSec = anchors,
-                    customQuery = customAiPrompt
+                // 5. Filter by DetectionMode & run Multi-Signal Consensus Engine
+                onProgress(0.95f, "Merging multi-signal consensus clips...")
+                val modeFiltered = filterCandidatesByMode(rawCandidates, mode)
+                val consensusClips = runMultiSignalConsensus(
+                    candidates = modeFiltered,
+                    cues = cues,
+                    paddingPreset = paddingPreset,
+                    durationSec = durationSec
                 )
+
+                val summary = buildString {
+                    append("${consensusClips.size} clips found")
+                    if (heatmap.isNotEmpty()) append(" • Heatmap")
+                    if (allSuperChats.isNotEmpty()) append(" • ${allSuperChats.size} Super Chats")
+                    if (cues.isNotEmpty()) append(" • Transcript")
+                }
+
+                onProgress(1.0f, "Analysis complete!")
+                Result.success(
+                    VideoAnalysisResult(
+                        sourceUrlOrUri = rawUrl.trim(),
+                        isLocalFile = false,
+                        localFilePath = null,
+                        videoTitle = videoTitle,
+                        channelName = channelName,
+                        durationSec = durationSec,
+                        heatmap = heatmap,
+                        clips = consensusClips,
+                        hasLiveChat = liveChatFile != null,
+                        hasTranscript = cues.isNotEmpty(),
+                        analysisSummary = summary
+                    )
+                )
+            } finally {
+                workDir.deleteRecursively()
             }
-
-            onProgress("Running Multi-Signal Consensus Engine...")
-            val finalClips = ConsensusEngine.mergeAndRank(allCandidates)
-
-            VideoAnalysisResult(
-                sourceInput = url,
-                isLocalFile = false,
-                localFilePath = null,
-                title = title,
-                channelName = channel,
-                durationSec = durationSec,
-                heatmap = heatmap,
-                clips = finalClips,
-                transcriptCount = transcript.size,
-                superChatCount = chatScan.superChats.size
-            )
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 
     suspend fun analyzeLocalVideo(
+        context: Context,
         uri: Uri,
-        displayName: String,
-        mode: DetectionMode,
-        aiSettings: AiSettings,
-        customAiPrompt: String,
-        onProgress: (String) -> Unit
+        paddingPreset: PaddingPreset,
+        onProgress: (Float, String) -> Unit
     ): Result<VideoAnalysisResult> = withContext(Dispatchers.IO) {
-        runCatching {
-            onProgress("Preparing local video file...")
-            val cachedFile = File(
-                context.cacheDir,
-                "local_${System.currentTimeMillis()}_${TimeUtils.sanitizeFileName(displayName)}.mp4"
+        try {
+            onProgress(0.10f, "Initializing FFmpeg acoustic scanner...")
+            EngineInitializer.ensureInitialized(context).getOrThrow()
+
+            onProgress(0.25f, "Staging local video metadata...")
+            val stagedFile = stageUriToCache(context, uri)
+                ?: return@withContext Result.failure(IllegalStateException("Unable to read selected local video file."))
+
+            val displayName = resolveDisplayName(context, uri) ?: stagedFile.nameWithoutExtension
+            val durationSec = probeVideoDurationSec(stagedFile.absolutePath).coerceAtLeast(1.0)
+
+            onProgress(0.50f, "Scanning audio RMS energy spikes with FFmpeg astats...")
+            val request = FFmpegExecuteRequest(
+                listOf(
+                    "-hide_banner",
+                    "-i", stagedFile.absolutePath,
+                    "-af", "astats=metadata=1:reset=1",
+                    "-f", "null",
+                    "-"
+                )
             )
-            ffmpegRunner.copyUriToCache(uri, cachedFile).getOrThrow()
+            val response = FFmpeg.getInstance().execute(request)
+            val logOutput = "${response.out}\n${response.err}"
 
-            val durationSec = ffmpegRunner.probeLocalDurationSec(cachedFile.absolutePath)
+            onProgress(0.82f, "Building acoustic energy curve & peak clips...")
+            val (heatmap, rawPeaks) = parseAudioRmsPeaks(logOutput, durationSec)
 
-            onProgress("Scanning local audio waveform energy peaks...")
-            val audioClips = ffmpegRunner.scanAudioEnergyPeaks(
-                inputPath = cachedFile.absolutePath,
+            val consensusClips = runMultiSignalConsensus(
+                candidates = rawPeaks,
+                cues = emptyList(),
+                paddingPreset = paddingPreset,
                 durationSec = durationSec
             )
 
-            val syntheticHeatmap = buildSyntheticEnergyCurve(audioClips, durationSec)
-
-            val allCandidates = mutableListOf<ClipCandidate>()
-            if (mode != DetectionMode.AI_VIRAL || aiSettings.offlineMode) {
-                allCandidates += audioClips
-            }
-
-            if ((mode == DetectionMode.ALL || mode == DetectionMode.AI_VIRAL) &&
-                !aiSettings.offlineMode &&
-                customAiPrompt.isNotBlank()
-            ) {
-                onProgress("Refining clips with AI query...")
-                val syntheticTranscript = audioClips.map {
-                    TranscriptSegment(it.startSec, it.endSec, "${it.title}: ${it.reason}")
-                }
-                allCandidates += aiClient.detectViralAndCustomClips(
-                    settings = aiSettings,
+            onProgress(1.0f, "Local video analysis complete!")
+            Result.success(
+                VideoAnalysisResult(
+                    sourceUrlOrUri = uri.toString(),
+                    isLocalFile = true,
+                    localFilePath = stagedFile.absolutePath,
                     videoTitle = displayName,
+                    channelName = "Local Device Video",
                     durationSec = durationSec,
-                    transcript = syntheticTranscript,
-                    anchorTimestampsSec = audioClips.map { (it.startSec + it.endSec) / 2.0 },
-                    customQuery = customAiPrompt
+                    heatmap = heatmap,
+                    clips = consensusClips,
+                    hasLiveChat = false,
+                    hasTranscript = false,
+                    analysisSummary = "${consensusClips.size} audio energy peaks detected"
                 )
-            }
-
-            val finalClips = ConsensusEngine.mergeAndRank(allCandidates)
-
-            VideoAnalysisResult(
-                sourceInput = displayName,
-                isLocalFile = true,
-                localFilePath = cachedFile.absolutePath,
-                title = displayName.substringBeforeLast('.'),
-                channelName = "Local Device Media",
-                durationSec = durationSec,
-                heatmap = syntheticHeatmap,
-                clips = finalClips,
-                transcriptCount = 0,
-                superChatCount = 0
             )
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 
-    private fun parseHeatmap(infoJson: JSONObject): List<HeatmapPoint> {
+    private fun parseHeatmapFromInfoJson(infoJson: JSONObject): List<HeatmapPoint> {
         val arr = infoJson.optJSONArray("heatmap") ?: return emptyList()
         return buildList {
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
                 val start = obj.optDouble("start_time", Double.NaN)
                 val end = obj.optDouble("end_time", Double.NaN)
-                val value = obj.optDouble("value", 0.0)
-                if (!start.isNaN() && !end.isNaN()) {
+                val value = obj.optDouble("value", Double.NaN)
+                if (!start.isNaN() && !end.isNaN() && !value.isNaN()) {
                     add(HeatmapPoint(start, end, value.coerceIn(0.0, 1.0)))
                 }
             }
         }
     }
 
-    private fun extractHeatmapClips(
+    private fun detectHeatmapPeaks(
         heatmap: List<HeatmapPoint>,
-        transcript: List<TranscriptSegment>,
         durationSec: Double
     ): List<ClipCandidate> {
         if (heatmap.size < 3) return emptyList()
-
-        val peaks = mutableListOf<HeatmapPoint>()
-        for (i in 1 until heatmap.size - 1) {
+        val peaks = mutableListOf<ClipCandidate>()
+        for (i in 1 until heatmap.lastIndex) {
             val prev = heatmap[i - 1].value
             val curr = heatmap[i].value
             val next = heatmap[i + 1].value
-            if (curr >= prev && curr >= next && curr >= 0.45) {
-                peaks.add(heatmap[i])
-            }
-        }
-
-        val topPeaks = peaks.sortedByDescending { it.value }.take(10)
-        val result = mutableListOf<ClipCandidate>()
-        for (peak in topPeaks) {
-            val center = (peak.startSec + peak.endSec) / 2.0
-            if (result.any { kotlin.math.abs(((it.startSec + it.endSec) / 2.0) - center) < 20.0 }) {
-                continue
-            }
-            val start = (center - 14.0).coerceAtLeast(0.0)
-            val end = (center + 18.0).coerceAtMost(durationSec)
-            val score = (68 + (peak.value * 32.0)).toInt().coerceIn(65, 100)
-            val snippet = transcript.filter { it.endSec >= start && it.startSec <= end }
-                .joinToString(" ") { it.text }
-                .take(240)
-
-            result.add(
-                ClipCandidate(
-                    title = "Most Replayed Peak (${(peak.value * 100).toInt()}%)",
-                    startSec = start,
-                    endSec = end,
-                    score = score,
-                    signals = listOf(SignalType.HEATMAP),
-                    transcriptSnippet = snippet,
-                    reason = String.format(
-                        Locale.US,
-                        "Viewer replay intensity %.0f%% at %s",
-                        peak.value * 100.0,
-                        TimeUtils.formatTimestamp(center)
+            if (curr >= 0.62 && curr >= prev && curr >= next) {
+                val center = (heatmap[i].startSec + heatmap[i].endSec) / 2.0
+                val start = (center - 12.0).coerceAtLeast(0.0)
+                val end = (center + 18.0).coerceAtMost(durationSec)
+                val score = (60 + (curr * 38.0).toInt()).coerceIn(60, 98)
+                peaks.add(
+                    ClipCandidate(
+                        id = UUID.randomUUID().toString(),
+                        title = "Most Replayed Spike (${(curr * 100.0).toInt()}%)",
+                        startSec = start,
+                        endSec = end,
+                        hypeScore = score,
+                        signals = listOf(SignalSource.HEATMAP),
+                        isMultiSignal = false,
+                        reason = "Viewer replay intensity hit ${(curr * 100.0).toInt()}% of peak"
                     )
                 )
-            )
+            }
         }
-        return result.sortedBy { it.startSec }
+        return peaks.sortedByDescending { it.hypeScore }.take(12)
     }
 
-    private fun extractChapterOrTranscriptHighlights(
+    private fun detectChaptersAndDescriptionCues(
         infoJson: JSONObject,
-        transcript: List<TranscriptSegment>,
         durationSec: Double
     ): List<ClipCandidate> {
+        val results = mutableListOf<ClipCandidate>()
         val chapters = infoJson.optJSONArray("chapters")
         if (chapters != null && chapters.length() > 0) {
-            return buildList {
-                for (i in 0 until minOf(chapters.length(), 8)) {
-                    val ch = chapters.optJSONObject(i) ?: continue
-                    val start = ch.optDouble("start_time", 0.0)
-                    val end = ch.optDouble("end_time", (start + 30.0).coerceAtMost(durationSec))
-                    val chTitle = ch.optString("title").ifBlank { "Chapter #${i + 1}" }
-                    add(
+            for (i in 0 until chapters.length().coerceAtMost(12)) {
+                val ch = chapters.optJSONObject(i) ?: continue
+                val start = ch.optDouble("start_time", Double.NaN)
+                val end = ch.optDouble("end_time", Double.NaN)
+                val title = ch.optString("title").trim().ifBlank { "Chapter #${i + 1}" }
+                if (!start.isNaN() && !end.isNaN() && end > start) {
+                    val clippedEnd = minOf(end, start + 45.0).coerceAtMost(durationSec)
+                    results.add(
                         ClipCandidate(
-                            title = chTitle,
-                            startSec = start,
-                            endSec = end.coerceAtMost(start + 60.0),
-                            score = 78,
-                            signals = listOf(SignalType.AUDIO_PEAK),
-                            reason = "Video chapter highlight"
+                            id = UUID.randomUUID().toString(),
+                            title = title,
+                            startSec = start.coerceAtLeast(0.0),
+                            endSec = clippedEnd,
+                            hypeScore = 74,
+                            signals = listOf(SignalSource.HEATMAP),
+                            isMultiSignal = false,
+                            reason = "Chapter highlight marker"
                         )
                     )
                 }
             }
+            return results
         }
 
-        if (transcript.isNotEmpty()) {
-            val excitementWords = listOf("!", "?", "what", "no way", "crazy", "insane", "bro", "omg", "haha", "let's go")
-            val scoredSegs = transcript.map { seg ->
-                val lower = seg.text.lowercase(Locale.US)
-                val hits = excitementWords.count { lower.contains(it) }
-                Pair(seg, hits)
-            }.filter { it.second > 0 }.sortedByDescending { it.second }
+        val description = infoJson.optString("description")
+        val tsRegex = Regex("""(?m)^(?:(\d{1,2}):)?(\d{1,2}):(\d{2})\s+(.+)$""")
+        val matches = tsRegex.findAll(description).toList().take(10)
+        for (match in matches) {
+            val h = match.groupValues[1].toDoubleOrNull() ?: 0.0
+            val m = match.groupValues[2].toDoubleOrNull() ?: 0.0
+            val s = match.groupValues[3].toDoubleOrNull() ?: 0.0
+            val label = match.groupValues[4].trim().take(60)
+            val start = (h * 3600.0 + m * 60.0 + s).coerceIn(0.0, (durationSec - 5.0).coerceAtLeast(0.0))
+            val end = (start + 30.0).coerceAtMost(durationSec)
+            results.add(
+                ClipCandidate(
+                    id = UUID.randomUUID().toString(),
+                    title = label,
+                    startSec = start,
+                    endSec = end,
+                    hypeScore = 72,
+                    signals = listOf(SignalSource.HEATMAP),
+                    isMultiSignal = false,
+                    reason = "Timestamp highlight from video description"
+                )
+            )
+        }
+        return results
+    }
 
-            val clips = mutableListOf<ClipCandidate>()
-            for ((seg, hits) in scoredSegs) {
-                if (clips.size >= 6) break
-                if (clips.any { kotlin.math.abs(it.startSec - seg.startSec) < 25.0 }) continue
-                val start = (seg.startSec - 10.0).coerceAtLeast(0.0)
-                val end = (seg.endSec + 20.0).coerceAtMost(durationSec)
-                clips.add(
+    private fun parseAudioRmsPeaks(
+        ffmpegStderr: String,
+        durationSec: Double
+    ): Pair<List<HeatmapPoint>, List<ClipCandidate>> {
+        val ptsRegex = Regex("""pts_time:(\d+(?:\.\d+)?)""")
+        val rmsRegex = Regex("""RMS level dB:\s*(-?\d+(?:\.\d+)?)""")
+
+        val samples = mutableListOf<Pair<Double, Double>>()
+        var latestPts = 0.0
+
+        ffmpegStderr.lineSequence().forEach { line ->
+            ptsRegex.find(line)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let { pts ->
+                latestPts = pts
+            }
+            rmsRegex.find(line)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let { rmsDb ->
+                if (rmsDb.isFinite() && rmsDb > -90.0) {
+                    samples.add(latestPts to rmsDb)
+                }
+            }
+        }
+
+        if (samples.isEmpty()) {
+            // Fallback evenly-spaced highlight markers if audio track is silent/missing
+            val fallbackClip = ClipCandidate(
+                id = UUID.randomUUID().toString(),
+                title = "Opening Highlight",
+                startSec = 0.0,
+                endSec = minOf(25.0, durationSec),
+                hypeScore = 70,
+                signals = listOf(SignalSource.AUDIO_PEAK),
+                isMultiSignal = false,
+                reason = "Default opening segment"
+            )
+            return emptyList<HeatmapPoint>() to listOf(fallbackClip)
+        }
+
+        // Aggregate into 40 buckets for the Canvas Heatmap curve
+        val bucketCount = 40
+        val bucketSize = (durationSec / bucketCount.toDouble()).coerceAtLeast(1.0)
+        val bucketMaxDb = DoubleArray(bucketCount) { -60.0 }
+
+        for ((time, db) in samples) {
+            val idx = (time / bucketSize).toInt().coerceIn(0, bucketCount - 1)
+            if (db > bucketMaxDb[idx]) bucketMaxDb[idx] = db
+        }
+
+        val minDb = bucketMaxDb.minOrNull() ?: -60.0
+        val maxDb = bucketMaxDb.maxOrNull() ?: -10.0
+        val span = (maxDb - minDb).coerceAtLeast(1.0)
+
+        val heatmap = (0 until bucketCount).map { idx ->
+            val norm = ((bucketMaxDb[idx] - minDb) / span).coerceIn(0.05, 1.0)
+            HeatmapPoint(
+                startSec = idx * bucketSize,
+                endSec = minOf((idx + 1) * bucketSize, durationSec),
+                value = norm
+            )
+        }
+
+        val meanDb = bucketMaxDb.average()
+        val variance = bucketMaxDb.sumOf { (it - meanDb) * (it - meanDb) } / bucketCount.toDouble()
+        val stdDb = sqrt(variance)
+        val peakThresholdDb = meanDb + 1.15 * stdDb
+
+        val peaks = mutableListOf<ClipCandidate>()
+        for (idx in 0 until bucketCount) {
+            val db = bucketMaxDb[idx]
+            if (db >= peakThresholdDb) {
+                val center = (idx + 0.5) * bucketSize
+                val start = (center - 8.0).coerceAtLeast(0.0)
+                val end = (center + 14.0).coerceAtMost(durationSec)
+                val norm = ((db - minDb) / span).coerceIn(0.0, 1.0)
+                val score = (68 + (norm * 29.0).toInt()).coerceIn(68, 97)
+                peaks.add(
                     ClipCandidate(
-                        title = "Highlight @ ${TimeUtils.formatTimestamp(seg.startSec)}",
+                        id = UUID.randomUUID().toString(),
+                        title = String.format(Locale.US, "Audio Energy Peak (%.1f dB)", db),
                         startSec = start,
                         endSec = end,
-                        score = (72 + hits * 6).coerceIn(72, 92),
-                        signals = listOf(SignalType.AUDIO_PEAK),
-                        transcriptSnippet = seg.text.take(240),
-                        reason = "High-energy dialogue cue"
+                        hypeScore = score,
+                        signals = listOf(SignalSource.AUDIO_PEAK),
+                        isMultiSignal = false,
+                        reason = String.format(Locale.US, "Loudness surge %.1f dB above baseline", db - meanDb)
                     )
                 )
             }
-            if (clips.isNotEmpty()) return clips.sortedBy { it.startSec }
         }
 
-        val count = (durationSec / 60.0).toInt().coerceIn(2, 5)
-        val step = durationSec / (count + 1)
-        return (1..count).map { idx ->
-            val center = idx * step
-            ClipCandidate(
-                title = "Highlight Window #$idx",
-                startSec = (center - 15.0).coerceAtLeast(0.0),
-                endSec = (center + 15.0).coerceAtMost(durationSec),
-                score = 70,
-                signals = listOf(SignalType.AUDIO_PEAK),
-                reason = "Auto-segmented highlight candidate"
-            )
+        return heatmap to peaks.sortedByDescending { it.hypeScore }.take(12)
+    }
+
+    private fun filterCandidatesByMode(
+        candidates: List<ClipCandidate>,
+        mode: DetectionMode
+    ): List<ClipCandidate> {
+        return when (mode) {
+            DetectionMode.SMART_ALL -> candidates
+            DetectionMode.HEATMAP -> candidates.filter { SignalSource.HEATMAP in it.signals }
+            DetectionMode.SUPER_CHAT -> candidates.filter { SignalSource.SUPER_CHAT in it.signals }
+            DetectionMode.CHAT_HYPE -> candidates.filter { SignalSource.CHAT_HYPE in it.signals }
+            DetectionMode.AUDIO_PEAKS -> candidates.filter { SignalSource.AUDIO_PEAK in it.signals }
+            DetectionMode.AI_CUSTOM -> candidates.filter { SignalSource.AI_PICK in it.signals }
         }
     }
 
-    private fun buildSyntheticEnergyCurve(
-        clips: List<ClipCandidate>,
+    private fun runMultiSignalConsensus(
+        candidates: List<ClipCandidate>,
+        cues: List<TranscriptCue>,
+        paddingPreset: PaddingPreset,
         durationSec: Double
-    ): List<HeatmapPoint> {
-        val bins = 40
-        val binWidth = (durationSec / bins).coerceAtLeast(1.0)
-        return (0 until bins).map { idx ->
-            val bStart = idx * binWidth
-            val bEnd = (idx + 1) * binWidth
-            val bMid = (bStart + bEnd) / 2.0
-            val matchingClip = clips.firstOrNull { bMid in it.startSec..it.endSec }
-            val value = if (matchingClip != null) {
-                (matchingClip.score / 100.0).coerceIn(0.4, 1.0)
+    ): List<ClipCandidate> {
+        if (candidates.isEmpty()) return emptyList()
+
+        val sorted = candidates.sortedBy { it.startSec }
+        val mergedList = mutableListOf<ClipCandidate>()
+        var current = sorted.first()
+
+        for (i in 1 until sorted.size) {
+            val next = sorted[i]
+            // Merge overlapping or adjacent clips within 18 seconds
+            if (next.startSec - current.endSec <= 18.0) {
+                val combinedSignals = (current.signals + next.signals).distinct()
+                val multiSignal = combinedSignals.size >= 2
+                val baseMax = maxOf(current.hypeScore, next.hypeScore)
+                val boostedScore = if (multiSignal) {
+                    (baseMax + 11 * (combinedSignals.size - 1)).coerceIn(1, 100)
+                } else {
+                    baseMax
+                }
+                val preferredSuperChat = current.superChat ?: next.superChat
+                val preferredTitle = when {
+                    preferredSuperChat != null -> "${preferredSuperChat.donor} • ${preferredSuperChat.amountDisplay}"
+                    next.hypeScore > current.hypeScore -> next.title
+                    else -> current.title
+                }
+                val combinedReason = listOf(current.reason, next.reason)
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .joinToString(" + ")
+
+                current = current.copy(
+                    title = preferredTitle,
+                    startSec = minOf(current.startSec, next.startSec),
+                    endSec = maxOf(current.endSec, next.endSec),
+                    hypeScore = boostedScore,
+                    signals = combinedSignals,
+                    isMultiSignal = multiSignal,
+                    superChat = preferredSuperChat,
+                    reason = combinedReason
+                )
             } else {
-                0.18 + (idx % 4) * 0.04
+                mergedList.add(finalizeClipWithPaddingAndQuote(current, cues, paddingPreset, durationSec))
+                current = next
             }
-            HeatmapPoint(bStart, bEnd, value)
+        }
+        mergedList.add(finalizeClipWithPaddingAndQuote(current, cues, paddingPreset, durationSec))
+
+        return mergedList.sortedWith(
+            compareByDescending<ClipCandidate> { it.isMultiSignal }
+                .thenByDescending { it.hypeScore }
+                .thenBy { it.startSec }
+        )
+    }
+
+    private fun finalizeClipWithPaddingAndQuote(
+        clip: ClipCandidate,
+        cues: List<TranscriptCue>,
+        paddingPreset: PaddingPreset,
+        durationSec: Double
+    ): ClipCandidate {
+        val paddedStart = (clip.startSec - paddingPreset.beforeSec).coerceAtLeast(0.0)
+        val paddedEnd = (clip.endSec + paddingPreset.afterSec)
+            .coerceAtMost(durationSec)
+            .coerceAtLeast((paddedStart + 3.0).coerceAtMost(durationSec))
+        val quote = SubtitleAndChatParser.extractQuoteAround(cues, paddedStart, paddedEnd)
+        return clip.copy(
+            startSec = paddedStart,
+            endSec = paddedEnd,
+            transcriptQuote = quote
+        )
+    }
+
+    private fun stageUriToCache(context: Context, uri: Uri): File? {
+        return try {
+            val localDir = File(context.cacheDir, "local_videos").apply { mkdirs() }
+            localDir.listFiles()?.forEach { it.delete() }
+            val fileName = resolveDisplayName(context, uri) ?: "local_input.mp4"
+            val dest = File(localDir, fileName)
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                FileOutputStream(dest).use { output ->
+                    input.copyTo(output, bufferSize = 65536)
+                }
+            } ?: return null
+            dest
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun resolveDisplayName(context: Context, uri: Uri): String? {
+        return try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+                    if (idx >= 0) cursor.getString(idx) else null
+                } else {
+                    null
+                }
+            }
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private fun probeVideoDurationSec(filePath: String): Double {
+        val retriever = MediaMetadataRetriever()
+        return try {
+            retriever.setDataSource(filePath)
+            val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull() ?: 0L
+            durationMs / 1000.0
+        } catch (_: Throwable) {
+            0.0
+        } finally {
+            runCatching { retriever.release() }
         }
     }
 }
-'''
+""",
+    )
 
-FILES["app/src/main/java/com/clippulse/studio/engine/ClipExporter.kt"] = r'''package com.clippulse.studio.engine
+    write_file(
+        f"{base}/engine/ClipExporter.kt",
+        """
+package com.clippulse.studio.engine
 
 import android.content.ContentValues
 import android.content.Context
+import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
-import com.clippulse.studio.ClipPulseApp
 import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.ExportConfig
-import com.clippulse.studio.model.VideoAnalysisResult
+import com.clippulse.studio.model.ExportMode
+import com.clippulse.studio.model.TimeFormatter
+import com.yausername.ffmpeg.FFmpeg
+import com.yausername.ffmpeg.FFmpegExecuteRequest
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
+import java.io.FileOutputStream
+import java.nio.charset.StandardCharsets
 import java.util.Locale
 
-class ClipExporter(
-    private val context: Context,
-    private val ffmpegRunner: FfmpegRunner
-) {
+object ClipExporter {
 
-    suspend fun exportSingleClip(
-        analysis: VideoAnalysisResult,
+    fun exportSingleClip(
+        context: Context,
+        sourceUrlOrUri: String,
+        isLocalFile: Boolean,
+        localFilePath: String?,
+        videoTitle: String,
         clip: ClipCandidate,
-        config: ExportConfig,
-        onStatus: (String) -> Unit
-    ): Result<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            ClipPulseApp.ensureEnginesInitialized(context).getOrThrow()
+        clipIndex: Int,
+        exportMode: ExportMode,
+        includeTxtNotes: Boolean
+    ): Result<String> {
+        return try {
+            EngineInitializer.ensureInitialized(context).getOrThrow()
 
-            val paddedStart = (clip.startSec - config.startPaddingSec).coerceAtLeast(0.0)
-            val paddedEnd = (clip.endSec + config.endPaddingSec)
-                .coerceAtMost(analysis.durationSec)
-                .coerceAtLeast(paddedStart + 2.0)
+            val workDir = File(context.cacheDir, "export_${System.currentTimeMillis()}_$clipIndex").apply {
+                mkdirs()
+            }
 
-            val tempDir = File(context.cacheDir, "export_tmp").apply { mkdirs() }
-            val safeBase = "${TimeUtils.sanitizeFileName(clip.title)}_${System.currentTimeMillis()}"
-            val rawSectionFile = File(tempDir, "${safeBase}_raw.mp4")
-            val finalOutputFile = File(tempDir, "${safeBase}_final.mp4")
+            try {
+                val safeTitle = sanitizeFileName(clip.title).take(42).ifBlank { "Clip_${clipIndex + 1}" }
+                val baseName = "ClipPulse_${clipIndex + 1}_$safeTitle"
+                val rawCutFile = File(workDir, "raw_section.mp4")
+                val finalMp4File = File(workDir, "$baseName.mp4")
 
-            if (analysis.isLocalFile && !analysis.localFilePath.isNullOrBlank()) {
-                onStatus("Slicing local video section...")
-                val duration = (paddedEnd - paddedStart).coerceAtLeast(1.0)
-                val ffmpegArgs = if (config.useVerticalCrop) {
-                    listOf(
-                        "-y",
-                        "-ss", String.format(Locale.US, "%.2f", paddedStart),
-                        "-i", analysis.localFilePath,
-                        "-t", String.format(Locale.US, "%.2f", duration),
-                        "-vf", "crop=ih*9/16:ih",
-                        "-c:v", "libx264",
-                        "-preset", "fast",
-                        "-crf", "21",
-                        "-c:a", "aac",
-                        "-b:a", "128k",
-                        finalOutputFile.absolutePath
-                    )
-                } else {
-                    listOf(
-                        "-y",
-                        "-ss", String.format(Locale.US, "%.2f", paddedStart),
-                        "-i", analysis.localFilePath,
-                        "-t", String.format(Locale.US, "%.2f", duration),
-                        "-c", "copy",
-                        finalOutputFile.absolutePath
-                    )
-                }
-                val ffRes = ffmpegRunner.execute(ffmpegArgs)
-                if (ffRes.exitCode != 0 || !finalOutputFile.exists()) {
-                    error("FFmpeg local slice failed: ${ffRes.output.takeLast(180)}")
-                }
-            } else {
-                val sectionArg = TimeUtils.formatDownloadSection(paddedStart, paddedEnd)
-                onStatus("Downloading section $sectionArg (up to 1080p)...")
-
-                val request = YoutubeDLRequest(analysis.sourceInput).apply {
-                    addOption(
-                        "-f",
-                        "bestvideo[height<=1080][ext=mp4]+bestaudio[ext=m4a]/best[height<=1080][ext=mp4]/best[height<=1080]"
-                    )
-                    addOption("--download-sections", sectionArg)
-                    addOption("--force-keyframes-at-cuts")
-                    addOption("--merge-output-format", "mp4")
-                    addOption("--no-playlist")
-                    addOption("-o", rawSectionFile.absolutePath)
-                }
-
-                val dlRes = YoutubeDL.getInstance().execute(request) { progress, _, _ ->
-                    if (progress >= 0f) {
-                        onStatus("Downloading section $sectionArg (${progress.toInt()}%)...")
-                    }
-                }
-
-                val downloadedFile = tempDir.listFiles()?.firstOrNull {
-                    it.name.startsWith("${safeBase}_raw") && it.length() > 0L
-                } ?: error("Section download failed: ${dlRes.err.takeLast(180)}")
-
-                if (config.useVerticalCrop) {
-                    onStatus("Applying 9:16 vertical crop...")
-                    val cropRes = ffmpegRunner.execute(
+                if (isLocalFile && !localFilePath.isNullOrBlank()) {
+                    val startStr = TimeFormatter.formatFfmpegDuration(clip.startSec)
+                    val durStr = TimeFormatter.formatFfmpegDuration(clip.durationSec)
+                    val ffmpegArgs = if (exportMode == ExportMode.VERTICAL_CROP) {
                         listOf(
                             "-y",
-                            "-i", downloadedFile.absolutePath,
+                            "-ss", startStr,
+                            "-i", localFilePath,
+                            "-t", durStr,
                             "-vf", "crop=ih*9/16:ih",
                             "-c:v", "libx264",
-                            "-preset", "fast",
+                            "-preset", "veryfast",
                             "-crf", "21",
                             "-c:a", "aac",
                             "-b:a", "128k",
-                            finalOutputFile.absolutePath
+                            "-movflags", "+faststart",
+                            finalMp4File.absolutePath
                         )
-                    )
-                    if (cropRes.exitCode != 0 || !finalOutputFile.exists()) {
-                        error("9:16 vertical crop failed: ${cropRes.output.takeLast(180)}")
+                    } else {
+                        listOf(
+                            "-y",
+                            "-ss", startStr,
+                            "-i", localFilePath,
+                            "-t", durStr,
+                            "-c", "copy",
+                            "-movflags", "+faststart",
+                            finalMp4File.absolutePath
+                        )
                     }
+                    FFmpeg.getInstance().execute(FFmpegExecuteRequest(ffmpegArgs))
                 } else {
-                    downloadedFile.copyTo(finalOutputFile, overwrite = true)
+                    val startTs = TimeFormatter.formatSectionTimestamp(clip.startSec)
+                    val endTs = TimeFormatter.formatSectionTimestamp(clip.endSec)
+                    val sectionSpec = "*$startTs-$endTs"
+
+                    val ytdlRequest = YoutubeDLRequest(sourceUrlOrUri).apply {
+                        addOption(
+                            "-f",
+                            "bv*[height<=1080][ext=mp4]+ba[ext=m4a]/b[height<=1080][ext=mp4]/bv*[height<=1080]+ba/b[height<=1080]/best"
+                        )
+                        addOption("--merge-output-format", "mp4")
+                        addOption("--download-sections", sectionSpec)
+                        addOption("--force-keyframes-at-cuts")
+                        addOption("--no-playlist")
+                        addOption("-o", rawCutFile.absolutePath)
+                    }
+                    YoutubeDL.getInstance().execute(ytdlRequest)
+
+                    val downloaded = workDir.listFiles()?.firstOrNull {
+                        it.extension.equals("mp4", ignoreCase = true) || it.name.startsWith("raw_section")
+                    } ?: throw IllegalStateException("Section download produced no output file.")
+
+                    if (exportMode == ExportMode.VERTICAL_CROP) {
+                        val cropArgs = listOf(
+                            "-y",
+                            "-i", downloaded.absolutePath,
+                            "-vf", "crop=ih*9/16:ih",
+                            "-c:v", "libx264",
+                            "-preset", "veryfast",
+                            "-crf", "21",
+                            "-c:a", "aac",
+                            "-b:a", "128k",
+                            "-movflags", "+faststart",
+                            finalMp4File.absolutePath
+                        )
+                        FFmpeg.getInstance().execute(FFmpegExecuteRequest(cropArgs))
+                    } else {
+                        val remuxArgs = listOf(
+                            "-y",
+                            "-i", downloaded.absolutePath,
+                            "-c", "copy",
+                            "-movflags", "+faststart",
+                            finalMp4File.absolutePath
+                        )
+                        FFmpeg.getInstance().execute(FFmpegExecuteRequest(remuxArgs))
+                    }
                 }
+
+                if (!finalMp4File.exists() || finalMp4File.length() == 0L) {
+                    return Result.failure(IllegalStateException("Rendered MP4 is empty for ${clip.title}"))
+                }
+
+                val savedVideoLocation = saveMp4ToGallery(context, finalMp4File, "$baseName.mp4")
+                if (includeTxtNotes) {
+                    val notesContent = buildSidecarNotes(videoTitle, sourceUrlOrUri, clip, exportMode)
+                    saveTxtToDocuments(context, "$baseName.txt", notesContent)
+                }
+
+                Result.success(savedVideoLocation)
+            } finally {
+                workDir.deleteRecursively()
             }
-
-            onStatus("Saving to Gallery (/Movies/ClipPulse)...")
-            val displayFilename = "${TimeUtils.sanitizeFileName(clip.title)}_${TimeUtils.formatTimestamp(paddedStart).replace(':', '-')}.mp4"
-            saveVideoToGallery(finalOutputFile, displayFilename)
-
-            if (config.includeTxtSidecar) {
-                saveTxtSidecar(
-                    analysis = analysis,
-                    clip = clip,
-                    paddedStart = paddedStart,
-                    paddedEnd = paddedEnd,
-                    baseFilename = displayFilename.removeSuffix(".mp4")
-                )
-            }
-
-            rawSectionFile.delete()
-            finalOutputFile.delete()
-            displayFilename
+        } catch (t: Throwable) {
+            Result.failure(t)
         }
     }
 
-    private fun saveVideoToGallery(sourceFile: File, displayName: String) {
-        val resolver = context.contentResolver
-        val values = ContentValues().apply {
-            put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
-            put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                put(
-                    MediaStore.Video.Media.RELATIVE_PATH,
-                    "${Environment.DIRECTORY_MOVIES}/ClipPulse"
-                )
+    private fun saveMp4ToGallery(context: Context, sourceMp4: File, displayName: String): String {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.Video.Media.DISPLAY_NAME, displayName)
+                put(MediaStore.Video.Media.MIME_TYPE, "video/mp4")
+                put(MediaStore.Video.Media.RELATIVE_PATH, "${Environment.DIRECTORY_MOVIES}/ClipPulse")
                 put(MediaStore.Video.Media.IS_PENDING, 1)
             }
-        }
+            val itemUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
+                ?: throw IllegalStateException("MediaStore failed to allocate gallery video URI.")
 
-        val itemUri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-            ?: error("MediaStore failed to create Gallery entry")
+            resolver.openOutputStream(itemUri)?.use { out ->
+                FileInputStream(sourceMp4).use { input ->
+                    input.copyTo(out, bufferSize = 65536)
+                }
+            } ?: throw IllegalStateException("Unable to open gallery output stream.")
 
-        resolver.openOutputStream(itemUri)?.use { out ->
-            sourceFile.inputStream().use { input ->
-                input.copyTo(out, bufferSize = 65536)
-            }
-        } ?: error("Unable to write video stream to Gallery")
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val complete = ContentValues().apply {
-                put(MediaStore.Video.Media.IS_PENDING, 0)
-            }
-            resolver.update(itemUri, complete, null, null)
-        }
-    }
-
-    private fun saveTxtSidecar(
-        analysis: VideoAnalysisResult,
-        clip: ClipCandidate,
-        paddedStart: Double,
-        paddedEnd: Double,
-        baseFilename: String
-    ) {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
-        val sidecarText = buildString {
-            appendLine("ClipPulse Studio Export Note")
-            appendLine("============================")
-            appendLine("Clip Title: ${clip.title}")
-            appendLine("Source Title: ${analysis.title}")
-            appendLine("Source URL: ${analysis.sourceInput}")
-            appendLine("Range: ${TimeUtils.formatTimestamp(paddedStart)} - ${TimeUtils.formatTimestamp(paddedEnd)}")
-            appendLine("Hype Score: ${clip.score}/100")
-            appendLine("Signals: ${clip.signals.joinToString(", ") { it.label }}")
-            if (clip.superChat != null) {
-                appendLine("Super Chat: ${clip.superChat.amountText} from ${clip.superChat.authorName}")
-                if (clip.superChat.message.isNotBlank()) {
-                    appendLine("Donor Message: ${clip.superChat.message}")
+            values.clear()
+            values.put(MediaStore.Video.Media.IS_PENDING, 0)
+            resolver.update(itemUri, values, null, null)
+            "Movies/ClipPulse/$displayName"
+        } else {
+            val moviesDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MOVIES),
+                "ClipPulse"
+            ).apply { mkdirs() }
+            val destFile = File(moviesDir, displayName)
+            FileInputStream(sourceMp4).use { input ->
+                FileOutputStream(destFile).use { out ->
+                    input.copyTo(out, bufferSize = 65536)
                 }
             }
-            if (clip.reason.isNotBlank()) {
-                appendLine("Detection Note: ${clip.reason}")
-            }
-            if (clip.transcriptSnippet.isNotBlank()) {
-                appendLine()
-                appendLine("Transcript Snippet:")
-                appendLine(clip.transcriptSnippet)
-            }
+            MediaScannerConnection.scanFile(context, arrayOf(destFile.absolutePath), arrayOf("video/mp4"), null)
+            destFile.absolutePath
         }
+    }
 
-        val resolver = context.contentResolver
-        val values = ContentValues().apply {
-            put(MediaStore.MediaColumns.DISPLAY_NAME, "$baseFilename.txt")
-            put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
-            put(
-                MediaStore.MediaColumns.RELATIVE_PATH,
-                "${Environment.DIRECTORY_DOCUMENTS}/ClipPulse"
-            )
-        }
-        runCatching {
+    private fun saveTxtToDocuments(context: Context, displayName: String, content: String) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = context.contentResolver
+            val values = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, displayName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "text/plain")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOCUMENTS}/ClipPulse")
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
             val uri = resolver.insert(MediaStore.Files.getContentUri("external"), values) ?: return
             resolver.openOutputStream(uri)?.use { out ->
-                out.write(sidecarText.toByteArray(Charsets.UTF_8))
+                out.write(content.toByteArray(StandardCharsets.UTF_8))
+            }
+            values.clear()
+            values.put(MediaStore.MediaColumns.IS_PENDING, 0)
+            resolver.update(uri, values, null, null)
+        } else {
+            val docsDir = File(
+                Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS),
+                "ClipPulse"
+            ).apply { mkdirs() }
+            File(docsDir, displayName).writeText(content, StandardCharsets.UTF_8)
+        }
+    }
+
+    private fun buildSidecarNotes(
+        videoTitle: String,
+        sourceUrlOrUri: String,
+        clip: ClipCandidate,
+        exportMode: ExportMode
+    ): String {
+        return buildString {
+            appendLine("ClipPulse Studio Export Notes")
+            appendLine("==============================")
+            appendLine("Clip Title : ${clip.title}")
+            appendLine("Source     : $videoTitle")
+            appendLine("URL / URI  : $sourceUrlOrUri")
+            appendLine(
+                String.format(
+                    Locale.US,
+                    "Range      : %s - %s (%.1fs)",
+                    TimeFormatter.formatTimestamp(clip.startSec),
+                    TimeFormatter.formatTimestamp(clip.endSec),
+                    clip.durationSec
+                )
+            )
+            appendLine("Hype Score : ${clip.hypeScore}/100")
+            appendLine("Signals    : ${clip.signals.joinToString(", ") { it.label }}")
+            appendLine("Format     : ${exportMode.label}")
+            clip.superChat?.let { sc ->
+                appendLine("Super Chat : ${sc.donor} (${sc.amountDisplay}) — ${sc.message}")
+            }
+            if (clip.reason.isNotBlank()) {
+                appendLine("Rationale  : ${clip.reason}")
+            }
+            if (clip.transcriptQuote.isNotBlank()) {
+                appendLine()
+                appendLine("Transcript Quote:")
+                appendLine("\"${clip.transcriptQuote}\"")
             }
         }
     }
+
+    private fun sanitizeFileName(raw: String): String {
+        return raw.replace(Regex("""[^a-zA-Z0-9._-]+"""), "_").trim('_')
+    }
 }
-'''
+""",
+    )
 
-# ==============================================================================
-# 7. FOREGROUND SERVICE (DATA SYNC)
-# ==============================================================================
+    write_file(
+        f"{base}/service/ClipExportService.kt",
+        """
+package com.clippulse.studio.service
 
-FILES["app/src/main/java/com/clippulse/studio/service/ClipExportService.kt"] = r'''package com.clippulse.studio.service
-
-import android.app.NotificationManager
-import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
-import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.clippulse.studio.ClipPulseApp
-import com.clippulse.studio.MainActivity
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.ServiceCompat
 import com.clippulse.studio.engine.ClipExporter
-import com.clippulse.studio.engine.FfmpegRunner
 import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.ExportConfig
-import com.clippulse.studio.model.ExportProgressState
-import com.clippulse.studio.model.VideoAnalysisResult
+import com.clippulse.studio.model.ExportJobState
+import com.clippulse.studio.model.ExportMode
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -2390,129 +2359,126 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
-object ExportSessionHolder {
-    var pendingAnalysis: VideoAnalysisResult? = null
+object ExportProgressBus {
+    private val _state = MutableStateFlow<ExportJobState>(ExportJobState.Idle)
+    val state: StateFlow<ExportJobState> = _state.asStateFlow()
+
+    @Volatile
     var pendingClips: List<ClipCandidate> = emptyList()
-    var pendingConfig: ExportConfig = ExportConfig()
 
-    private val _progress = MutableStateFlow(ExportProgressState())
-    val progress: StateFlow<ExportProgressState> = _progress.asStateFlow()
+    fun update(newState: ExportJobState) {
+        _state.value = newState
+    }
 
-    fun update(state: ExportProgressState) {
-        _progress.value = state
+    fun reset() {
+        _state.value = ExportJobState.Idle
     }
 }
 
 class ClipExportService : Service() {
-
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private var exportJob: Job? = null
+    private var activeJob: Job? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val analysis = ExportSessionHolder.pendingAnalysis
-        val clips = ExportSessionHolder.pendingClips
-        val config = ExportSessionHolder.pendingConfig
+        val sourceUrlOrUri = intent?.getStringExtra(EXTRA_SOURCE_URL).orEmpty()
+        val isLocalFile = intent?.getBooleanExtra(EXTRA_IS_LOCAL, false) ?: false
+        val localFilePath = intent?.getStringExtra(EXTRA_LOCAL_PATH)
+        val videoTitle = intent?.getStringExtra(EXTRA_VIDEO_TITLE).orEmpty()
+        val exportModeName = intent?.getStringExtra(EXTRA_EXPORT_MODE) ?: ExportMode.FAST_COPY.name
+        val includeTxt = intent?.getBooleanExtra(EXTRA_INCLUDE_TXT, true) ?: true
+        val clips = ExportProgressBus.pendingClips
 
-        if (analysis == null || clips.isEmpty()) {
+        val exportMode = runCatching { ExportMode.valueOf(exportModeName) }.getOrDefault(ExportMode.FAST_COPY)
+
+        val initialNotif = buildNotification(
+            title = "ClipPulse Exporting",
+            text = "Preparing ${clips.size} clip(s)...",
+            progress = 0,
+            max = clips.size.coerceAtLeast(1),
+            ongoing = true
+        )
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            initialNotif,
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+        )
+
+        if (clips.isEmpty() || sourceUrlOrUri.isBlank()) {
+            ExportProgressBus.update(ExportJobState.Failed("No clips selected for export."))
             stopSelf()
             return START_NOT_STICKY
         }
 
-        val notification = buildNotification(
-            title = "Exporting ${clips.size} clip(s) to Gallery",
-            text = "Preparing section-only pipeline...",
-            progress = 0,
-            max = 100
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
-
-        exportJob?.cancel()
-        exportJob = serviceScope.launch {
-            val exporter = ClipExporter(applicationContext, FfmpegRunner(applicationContext))
-            val completed = mutableListOf<String>()
+        activeJob?.cancel()
+        activeJob = serviceScope.launch {
+            val savedLocations = mutableListOf<String>()
             var lastError: String? = null
 
-            clips.forEachIndexed { idx, clip ->
-                val baseFraction = idx.toFloat() / clips.size.toFloat()
-                ExportSessionHolder.update(
-                    ExportProgressState(
-                        isExporting = true,
-                        currentIndex = idx + 1,
-                        totalCount = clips.size,
+            for ((index, clip) in clips.withIndex()) {
+                val fraction = index.toFloat() / clips.size.toFloat()
+                ExportProgressBus.update(
+                    ExportJobState.Running(
+                        currentIndex = index + 1,
+                        total = clips.size,
                         currentTitle = clip.title,
-                        fraction = baseFraction,
-                        statusMessage = "Clip ${idx + 1}/${clips.size}: ${clip.title}",
-                        completedTitles = completed.toList()
+                        progressFraction = fraction
                     )
                 )
-                updateNotification(
-                    title = "Exporting Clip ${idx + 1} of ${clips.size}",
+                notifyProgress(
+                    title = "Exporting clip ${index + 1} of ${clips.size}",
                     text = clip.title,
-                    progress = (baseFraction * 100).toInt(),
-                    max = 100
+                    progress = index,
+                    max = clips.size,
+                    ongoing = true
                 )
 
-                val res = exporter.exportSingleClip(
-                    analysis = analysis,
+                val result = ClipExporter.exportSingleClip(
+                    context = applicationContext,
+                    sourceUrlOrUri = sourceUrlOrUri,
+                    isLocalFile = isLocalFile,
+                    localFilePath = localFilePath,
+                    videoTitle = videoTitle,
                     clip = clip,
-                    config = config
-                ) { stepText ->
-                    ExportSessionHolder.update(
-                        ExportProgressState(
-                            isExporting = true,
-                            currentIndex = idx + 1,
-                            totalCount = clips.size,
-                            currentTitle = clip.title,
-                            fraction = baseFraction + (0.5f / clips.size.toFloat()),
-                            statusMessage = stepText,
-                            completedTitles = completed.toList()
-                        )
-                    )
-                }
-
-                res.onSuccess { savedName ->
-                    completed.add(savedName)
-                }.onFailure { err ->
-                    lastError = err.message ?: "Export error"
-                }
-            }
-
-            val finalMsg = if (completed.isNotEmpty()) {
-                "Saved ${completed.size}/${clips.size} clip(s) to /Movies/ClipPulse"
-            } else {
-                lastError ?: "Export failed"
-            }
-
-            ExportSessionHolder.update(
-                ExportProgressState(
-                    isExporting = false,
-                    currentIndex = clips.size,
-                    totalCount = clips.size,
-                    currentTitle = "",
-                    fraction = 1f,
-                    statusMessage = finalMsg,
-                    completedTitles = completed,
-                    errorMessage = if (completed.isEmpty()) lastError else null
+                    clipIndex = index,
+                    exportMode = exportMode,
+                    includeTxtNotes = includeTxt
                 )
-            )
 
-            updateNotification(
-                title = "ClipPulse Export Complete",
-                text = finalMsg,
-                progress = 100,
-                max = 100
-            )
+                result.fold(
+                    onSuccess = { location -> savedLocations.add(location) },
+                    onFailure = { err -> lastError = err.message ?: "Export failed" }
+                )
+            }
+
+            if (savedLocations.isNotEmpty()) {
+                ExportProgressBus.update(
+                    ExportJobState.Completed(
+                        exportedCount = savedLocations.size,
+                        savedLocations = savedLocations
+                    )
+                )
+                notifyProgress(
+                    title = "ClipPulse Export Complete",
+                    text = "Saved ${savedLocations.size} clip(s) to Movies/ClipPulse",
+                    progress = clips.size,
+                    max = clips.size,
+                    ongoing = false
+                )
+            } else {
+                val errMsg = lastError ?: "Failed to export selected clips."
+                ExportProgressBus.update(ExportJobState.Failed(errMsg))
+                notifyProgress(
+                    title = "ClipPulse Export Failed",
+                    text = errMsg,
+                    progress = 0,
+                    max = 1,
+                    ongoing = false
+                )
+            }
+
             stopForeground(STOP_FOREGROUND_DETACH)
             stopSelf()
         }
@@ -2520,63 +2486,546 @@ class ClipExportService : Service() {
         return START_NOT_STICKY
     }
 
-    private fun updateNotification(title: String, text: String, progress: Int, max: Int) {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager?.notify(NOTIFICATION_ID, buildNotification(title, text, progress, max))
-    }
-
-    private fun buildNotification(title: String, text: String, progress: Int, max: Int) =
-        NotificationCompat.Builder(this, ClipPulseApp.EXPORT_CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
-            .setContentTitle(title)
-            .setContentText(text)
-            .setOnlyAlertOnce(true)
-            .setOngoing(progress < max)
-            .setProgress(max, progress, progress == 0)
-            .setContentIntent(
-                PendingIntent.getActivity(
-                    this,
-                    0,
-                    Intent(this, MainActivity::class.java),
-                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-                )
-            )
-            .build()
-
     override fun onDestroy() {
         serviceScope.cancel()
         super.onDestroy()
     }
 
+    private fun buildNotification(
+        title: String,
+        text: String,
+        progress: Int,
+        max: Int,
+        ongoing: Boolean
+    ) = NotificationCompat.Builder(this, CHANNEL_ID)
+        .setSmallIcon(android.R.drawable.stat_sys_download)
+        .setContentTitle(title)
+        .setContentText(text)
+        .setOnlyAlertOnce(true)
+        .setOngoing(ongoing)
+        .apply {
+            if (ongoing) {
+                setProgress(max, progress, false)
+            } else {
+                setProgress(0, 0, false)
+                setAutoCancel(true)
+            }
+        }
+        .build()
+
+    private fun notifyProgress(
+        title: String,
+        text: String,
+        progress: Int,
+        max: Int,
+        ongoing: Boolean
+    ) {
+        try {
+            val notif = buildNotification(title, text, progress, max, ongoing)
+            NotificationManagerCompat.from(this).notify(
+                if (ongoing) NOTIFICATION_ID else NOTIFICATION_ID + 1,
+                notif
+            )
+        } catch (_: SecurityException) {
+            // Notification permission not granted on Android 13+; export still completes cleanly.
+        }
+    }
+
     companion object {
-        private const val NOTIFICATION_ID = 4091
+        const val CHANNEL_ID = "clippulse_export_channel"
+        const val NOTIFICATION_ID = 4102
+
+        private const val EXTRA_SOURCE_URL = "extra_source_url"
+        private const val EXTRA_IS_LOCAL = "extra_is_local"
+        private const val EXTRA_LOCAL_PATH = "extra_local_path"
+        private const val EXTRA_VIDEO_TITLE = "extra_video_title"
+        private const val EXTRA_EXPORT_MODE = "extra_export_mode"
+        private const val EXTRA_INCLUDE_TXT = "extra_include_txt"
 
         fun startExport(
             context: Context,
-            analysis: VideoAnalysisResult,
-            selectedClips: List<ClipCandidate>,
-            config: ExportConfig
+            sourceUrlOrUri: String,
+            isLocalFile: Boolean,
+            localFilePath: String?,
+            videoTitle: String,
+            clips: List<ClipCandidate>,
+            exportMode: ExportMode,
+            includeTxtNotes: Boolean
         ) {
-            ExportSessionHolder.pendingAnalysis = analysis
-            ExportSessionHolder.pendingClips = selectedClips
-            ExportSessionHolder.pendingConfig = config
-
-            val intent = Intent(context, ClipExportService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            ExportProgressBus.pendingClips = clips
+            val intent = Intent(context, ClipExportService::class.java).apply {
+                putExtra(EXTRA_SOURCE_URL, sourceUrlOrUri)
+                putExtra(EXTRA_IS_LOCAL, isLocalFile)
+                putExtra(EXTRA_LOCAL_PATH, localFilePath)
+                putExtra(EXTRA_VIDEO_TITLE, videoTitle)
+                putExtra(EXTRA_EXPORT_MODE, exportMode.name)
+                putExtra(EXTRA_INCLUDE_TXT, includeTxtNotes)
             }
+            androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
     }
 }
-'''
+""",
+    )
 
-# ==============================================================================
-# 8. VIEWMODEL & JETPACK COMPOSE DARK-MODE STUDIO UI
-# ==============================================================================
+    write_file(
+        f"{base}/viewmodel/ClipPulseViewModel.kt",
+        """
+package com.clippulse.studio.viewmodel
 
-FILES["app/src/main/java/com/clippulse/studio/ui/theme/Theme.kt"] = r'''package com.clippulse.studio.ui.theme
+import android.app.Application
+import android.net.Uri
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.clippulse.studio.data.AiConfigStore
+import com.clippulse.studio.engine.EngineInitializer
+import com.clippulse.studio.engine.VideoAnalysisEngine
+import com.clippulse.studio.model.AiConfig
+import com.clippulse.studio.model.AiConnectionState
+import com.clippulse.studio.model.AiPreset
+import com.clippulse.studio.model.ClipCandidate
+import com.clippulse.studio.model.DetectionMode
+import com.clippulse.studio.model.ExportJobState
+import com.clippulse.studio.model.ExportMode
+import com.clippulse.studio.model.PaddingPreset
+import com.clippulse.studio.model.SignalSource
+import com.clippulse.studio.model.SuperChatThreshold
+import com.clippulse.studio.model.VideoAnalysisResult
+import com.clippulse.studio.network.UniversalAiClient
+import com.clippulse.studio.service.ClipExportService
+import com.clippulse.studio.service.ExportProgressBus
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+
+data class StudioUiState(
+    val sourceInput: String = "",
+    val detectionMode: DetectionMode = DetectionMode.SMART_ALL,
+    val customAiPrompt: String = "",
+    val superChatThreshold: SuperChatThreshold = SuperChatThreshold.ALL,
+    val paddingPreset: PaddingPreset = PaddingPreset.BALANCED,
+    val isAnalyzing: Boolean = false,
+    val analysisProgress: Float = 0f,
+    val analysisStatus: String = "",
+    val analysisError: String? = null,
+    val analysisResult: VideoAnalysisResult? = null,
+    val activeSignalFilter: SignalSource? = null,
+    val expandedClipId: String? = null,
+    val focusedClipId: String? = null,
+    val exportMode: ExportMode = ExportMode.FAST_COPY,
+    val includeTxtNotes: Boolean = true,
+    val aiConfig: AiConfig = AiConfig(),
+    val aiConnectionState: AiConnectionState = AiConnectionState.Idle,
+    val isFetchingModels: Boolean = false,
+    val modelFetchError: String? = null,
+    val isAiSheetOpen: Boolean = false,
+    val isUpdatingYtDlp: Boolean = false,
+    val ytDlpUpdateStatus: String? = null
+)
+
+class ClipPulseViewModel(application: Application) : AndroidViewModel(application) {
+    private val configStore = AiConfigStore(application)
+    private val aiClient = UniversalAiClient()
+    private val analysisEngine = VideoAnalysisEngine(aiClient)
+
+    private val _uiState = MutableStateFlow(
+        StudioUiState(aiConfig = configStore.load())
+    )
+    val uiState: StateFlow<StudioUiState> = _uiState.asStateFlow()
+
+    val exportState: StateFlow<ExportJobState> = ExportProgressBus.state
+
+    fun updateSourceInput(value: String) {
+        _uiState.update { it.copy(sourceInput = value, analysisError = null) }
+    }
+
+    fun onSharedUrlReceived(url: String) {
+        _uiState.update { it.copy(sourceInput = url, analysisError = null) }
+    }
+
+    fun setDetectionMode(mode: DetectionMode) {
+        _uiState.update { it.copy(detectionMode = mode) }
+    }
+
+    fun setCustomAiPrompt(prompt: String) {
+        _uiState.update { it.copy(customAiPrompt = prompt) }
+    }
+
+    fun setSuperChatThreshold(threshold: SuperChatThreshold) {
+        _uiState.update { it.copy(superChatThreshold = threshold) }
+    }
+
+    fun setPaddingPreset(preset: PaddingPreset) {
+        _uiState.update { it.copy(paddingPreset = preset) }
+    }
+
+    fun setSignalFilter(signal: SignalSource?) {
+        _uiState.update { it.copy(activeSignalFilter = signal) }
+    }
+
+    fun toggleClipExpanded(clipId: String) {
+        _uiState.update { state ->
+            state.copy(expandedClipId = if (state.expandedClipId == clipId) null else clipId)
+        }
+    }
+
+    fun focusClipAtTime(targetSeconds: Double) {
+        val clips = _uiState.value.analysisResult?.clips ?: return
+        if (clips.isEmpty()) return
+        val nearest = clips.minByOrNull { clip ->
+            val center = (clip.startSec + clip.endSec) / 2.0
+            abs(center - targetSeconds)
+        } ?: return
+        _uiState.update {
+            it.copy(
+                focusedClipId = nearest.id,
+                expandedClipId = nearest.id
+            )
+        }
+    }
+
+    fun toggleClipSelected(clipId: String) {
+        _uiState.update { state ->
+            val result = state.analysisResult ?: return@update state
+            val updated = result.clips.map { clip ->
+                if (clip.id == clipId) clip.copy(selected = !clip.selected) else clip
+            }
+            state.copy(analysisResult = result.copy(clips = updated))
+        }
+    }
+
+    fun selectAllClips(selected: Boolean) {
+        _uiState.update { state ->
+            val result = state.analysisResult ?: return@update state
+            val filter = state.activeSignalFilter
+            val updated = result.clips.map { clip ->
+                if (filter == null || filter in clip.signals) {
+                    clip.copy(selected = selected)
+                } else {
+                    clip
+                }
+            }
+            state.copy(analysisResult = result.copy(clips = updated))
+        }
+    }
+
+    fun nudgeClipStart(clipId: String, deltaSec: Double) {
+        _uiState.update { state ->
+            val result = state.analysisResult ?: return@update state
+            val updated = result.clips.map { clip ->
+                if (clip.id == clipId) {
+                    val newStart = (clip.startSec + deltaSec)
+                        .coerceIn(0.0, (clip.endSec - 2.0).coerceAtLeast(0.0))
+                    clip.copy(startSec = newStart)
+                } else {
+                    clip
+                }
+            }
+            state.copy(analysisResult = result.copy(clips = updated))
+        }
+    }
+
+    fun nudgeClipEnd(clipId: String, deltaSec: Double) {
+        _uiState.update { state ->
+            val result = state.analysisResult ?: return@update state
+            val maxDur = result.durationSec.coerceAtLeast(1.0)
+            val updated = result.clips.map { clip ->
+                if (clip.id == clipId) {
+                    val newEnd = (clip.endSec + deltaSec)
+                        .coerceIn((clip.startSec + 2.0).coerceAtMost(maxDur), maxDur)
+                    clip.copy(endSec = newEnd)
+                } else {
+                    clip
+                }
+            }
+            state.copy(analysisResult = result.copy(clips = updated))
+        }
+    }
+
+    fun setExportMode(mode: ExportMode) {
+        _uiState.update { it.copy(exportMode = mode) }
+    }
+
+    fun toggleIncludeTxtNotes() {
+        _uiState.update { it.copy(includeTxtNotes = !it.includeTxtNotes) }
+    }
+
+    fun analyzeRemoteUrl() {
+        val url = _uiState.value.sourceInput.trim()
+        if (url.isBlank()) {
+            _uiState.update { it.copy(analysisError = "Paste a YouTube, YouTube Live VOD, or Facebook video link first.") }
+            return
+        }
+        if (_uiState.value.isAnalyzing) return
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isAnalyzing = true,
+                    analysisProgress = 0.05f,
+                    analysisStatus = "Preparing zero-download scan...",
+                    analysisError = null
+                )
+            }
+
+            val snapshot = _uiState.value
+            val result = analysisEngine.analyzeRemoteUrl(
+                context = getApplication(),
+                rawUrl = url,
+                mode = snapshot.detectionMode,
+                superChatThreshold = snapshot.superChatThreshold,
+                paddingPreset = snapshot.paddingPreset,
+                customAiPrompt = snapshot.customAiPrompt,
+                aiConfig = snapshot.aiConfig,
+                onProgress = { progress, status ->
+                    _uiState.update { it.copy(analysisProgress = progress, analysisStatus = status) }
+                }
+            )
+
+            result.fold(
+                onSuccess = { analysis ->
+                    _uiState.update {
+                        it.copy(
+                            isAnalyzing = false,
+                            analysisProgress = 1f,
+                            analysisStatus = analysis.analysisSummary,
+                            analysisResult = analysis,
+                            activeSignalFilter = null,
+                            expandedClipId = analysis.clips.firstOrNull()?.id,
+                            focusedClipId = analysis.clips.firstOrNull()?.id
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update {
+                        it.copy(
+                            isAnalyzing = false,
+                            analysisError = error.message ?: "Analysis failed."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun analyzeLocalVideoUri(uri: Uri) {
+        if (_uiState.value.isAnalyzing) return
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    sourceInput = uri.toString(),
+                    isAnalyzing = true,
+                    analysisProgress = 0.05f,
+                    analysisStatus = "Loading local video...",
+                    analysisError = null
+                )
+            }
+
+            val result = analysisEngine.analyzeLocalVideo(
+                context = getApplication(),
+                uri = uri,
+                paddingPreset = _uiState.value.paddingPreset,
+                onProgress = { progress, status ->
+                    _uiState.update { it.copy(analysisProgress = progress, analysisStatus = status) }
+                }
+            )
+
+            result.fold(
+                onSuccess = { analysis ->
+                    _uiState.update {
+                        it.copy(
+                            isAnalyzing = false,
+                            analysisProgress = 1f,
+                            analysisStatus = analysis.analysisSummary,
+                            analysisResult = analysis,
+                            activeSignalFilter = null,
+                            expandedClipId = analysis.clips.firstOrNull()?.id,
+                            focusedClipId = analysis.clips.firstOrNull()?.id
+                        )
+                    }
+                },
+                onFailure = { error ->
+                    _uiState.update {
+                        it.copy(
+                            isAnalyzing = false,
+                            analysisError = error.message ?: "Local video scan failed."
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun exportSelectedClips() {
+        val state = _uiState.value
+        val result = state.analysisResult ?: return
+        val selectedClips = result.clips.filter { it.selected }
+        if (selectedClips.isEmpty()) return
+
+        ClipExportService.startExport(
+            context = getApplication(),
+            sourceUrlOrUri = result.sourceUrlOrUri,
+            isLocalFile = result.isLocalFile,
+            localFilePath = result.localFilePath,
+            videoTitle = result.videoTitle,
+            clips = selectedClips,
+            exportMode = state.exportMode,
+            includeTxtNotes = state.includeTxtNotes
+        )
+    }
+
+    fun dismissExportStatus() {
+        ExportProgressBus.reset()
+    }
+
+    // --- Universal AI API Manager Controls ---
+
+    fun setAiSheetOpen(open: Boolean) {
+        _uiState.update { it.copy(isAiSheetOpen = open) }
+    }
+
+    fun selectAiPreset(preset: AiPreset) {
+        updateAndPersistAiConfig { current ->
+            current.copy(
+                preset = preset,
+                baseUrl = preset.defaultBaseUrl,
+                selectedModel = preset.defaultModel
+            )
+        }
+    }
+
+    fun updateAiBaseUrl(url: String) {
+        updateAndPersistAiConfig { it.copy(baseUrl = url) }
+    }
+
+    fun updatePrimaryApiKey(key: String) {
+        updateAndPersistAiConfig { it.copy(primaryKey = key) }
+    }
+
+    fun addBackupApiKey(key: String) {
+        val clean = key.trim()
+        if (clean.isBlank()) return
+        updateAndPersistAiConfig { current ->
+            current.copy(backupKeys = (current.backupKeys + clean).distinct())
+        }
+    }
+
+    fun removeBackupApiKey(key: String) {
+        updateAndPersistAiConfig { current ->
+            current.copy(backupKeys = current.backupKeys.filterNot { it == key })
+        }
+    }
+
+    fun selectAiModel(model: String) {
+        updateAndPersistAiConfig { it.copy(selectedModel = model) }
+    }
+
+    fun setSmartPeakOnly(enabled: Boolean) {
+        updateAndPersistAiConfig { it.copy(smartPeakOnly = enabled) }
+    }
+
+    fun setOfflineNoAiMode(enabled: Boolean) {
+        updateAndPersistAiConfig { it.copy(offlineNoAiMode = enabled) }
+    }
+
+    private fun updateAndPersistAiConfig(transform: (AiConfig) -> AiConfig) {
+        _uiState.update { state ->
+            val updated = transform(state.aiConfig)
+            configStore.save(updated)
+            state.copy(aiConfig = updated, modelFetchError = null)
+        }
+    }
+
+    fun fetchAvailableModels() {
+        val currentConfig = _uiState.value.aiConfig
+        val normalized = currentConfig.copy(baseUrl = AiConfigStore.normalizeBaseUrl(currentConfig.baseUrl))
+        configStore.save(normalized)
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(aiConfig = normalized, isFetchingModels = true, modelFetchError = null)
+            }
+            val result = aiClient.fetchModels(normalized)
+            result.fold(
+                onSuccess = { models ->
+                    val chosen = if (normalized.selectedModel in models) {
+                        normalized.selectedModel
+                    } else {
+                        models.first()
+                    }
+                    val updated = normalized.copy(
+                        availableModels = models,
+                        selectedModel = chosen
+                    )
+                    configStore.save(updated)
+                    _uiState.update {
+                        it.copy(
+                            aiConfig = updated,
+                            isFetchingModels = false,
+                            modelFetchError = null
+                        )
+                    }
+                },
+                onFailure = { err ->
+                    _uiState.update {
+                        it.copy(
+                            isFetchingModels = false,
+                            modelFetchError = err.message ?: "Failed to fetch models"
+                        )
+                    }
+                }
+            )
+        }
+    }
+
+    fun testAiConnection() {
+        val currentConfig = _uiState.value.aiConfig
+        val normalized = currentConfig.copy(baseUrl = AiConfigStore.normalizeBaseUrl(currentConfig.baseUrl))
+        configStore.save(normalized)
+
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(aiConfig = normalized, aiConnectionState = AiConnectionState.Testing)
+            }
+            val connState = aiClient.testConnection(normalized)
+            _uiState.update { it.copy(aiConnectionState = connState) }
+        }
+    }
+
+    fun updateYtDlpBinary() {
+        if (_uiState.value.isUpdatingYtDlp) return
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(isUpdatingYtDlp = true, ytDlpUpdateStatus = "Updating yt-dlp...") }
+            val result = EngineInitializer.updateYtDlpEngine(getApplication())
+            result.fold(
+                onSuccess = { status ->
+                    _uiState.update {
+                        it.copy(isUpdatingYtDlp = false, ytDlpUpdateStatus = "yt-dlp status: $status")
+                    }
+                },
+                onFailure = { err ->
+                    _uiState.update {
+                        it.copy(
+                            isUpdatingYtDlp = false,
+                            ytDlpUpdateStatus = "Update failed: ${err.message ?: "Unknown error"}"
+                        )
+                    }
+                }
+            )
+        }
+    }
+}
+""",
+    )
+
+    write_file(
+        f"{base}/ui/theme/Theme.kt",
+        """
+package com.clippulse.studio.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
@@ -2584,39 +3033,39 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
 val ObsidianBg = Color(0xFF0B0B0F)
-val MatteSlateCard = Color(0xFF16161D)
+val MatteSlate = Color(0xFF16161D)
 val ElevatedSlate = Color(0xFF1F1F29)
 val HairlineBorder = Color(0xFF262633)
 val ElectricIndigo = Color(0xFF6366F1)
-val ElectricIndigoDark = Color(0xFF4F46E5)
+val ElectricIndigoLight = Color(0xFF818CF8)
 
-val SuperChatGold = Color(0xFFF59E0B)
-val HeatmapCrimson = Color(0xFFEF4444)
-val ChatHypePurple = Color(0xFFA855F7)
-val AiPickCyan = Color(0xFF06B6D4)
-val MultiSignalOrange = Color(0xFFFB923C)
-val SuccessGreen = Color(0xFF10B981)
+val ColorGold = Color(0xFFF59E0B)
+val ColorCrimson = Color(0xFFEF4444)
+val ColorPurple = Color(0xFFA855F7)
+val ColorCyan = Color(0xFF06B6D4)
+val ColorEmerald = Color(0xFF10B981)
 
-val TextPrimary = Color(0xFFF4F4F6)
-val TextSecondary = Color(0xFFA1A1B5)
-val TextMuted = Color(0xFF6E6E85)
+val TextPrimary = Color(0xFFF4F4F8)
+val TextSecondary = Color(0xFF9CA3AF)
+val TextMuted = Color(0xFF6B7280)
 
 private val ClipPulseColorScheme = darkColorScheme(
     primary = ElectricIndigo,
     onPrimary = Color.White,
-    primaryContainer = ElectricIndigoDark,
-    onPrimaryContainer = Color.White,
-    secondary = AiPickCyan,
+    primaryContainer = Color(0xFF282A5E),
+    onPrimaryContainer = Color(0xFFE0E7FF),
+    secondary = ColorCyan,
     onSecondary = ObsidianBg,
+    tertiary = ColorGold,
     background = ObsidianBg,
     onBackground = TextPrimary,
-    surface = MatteSlateCard,
+    surface = MatteSlate,
     onSurface = TextPrimary,
     surfaceVariant = ElevatedSlate,
     onSurfaceVariant = TextSecondary,
     outline = HairlineBorder,
     outlineVariant = HairlineBorder,
-    error = HeatmapCrimson,
+    error = ColorCrimson,
     onError = Color.White
 )
 
@@ -2627,413 +3076,89 @@ fun ClipPulseTheme(content: @Composable () -> Unit) {
         content = content
     )
 }
-'''
-
-FILES["app/src/main/java/com/clippulse/studio/ui/ClipPulseViewModel.kt"] = r'''package com.clippulse.studio.ui
-
-import android.app.Application
-import android.net.Uri
-import android.provider.OpenableColumns
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import com.clippulse.studio.ClipPulseApp
-import com.clippulse.studio.data.AiConfigRepository
-import com.clippulse.studio.engine.FfmpegRunner
-import com.clippulse.studio.engine.VideoAnalysisEngine
-import com.clippulse.studio.model.AiConnectionState
-import com.clippulse.studio.model.AiProviderPreset
-import com.clippulse.studio.model.AiSettings
-import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.DetectionMode
-import com.clippulse.studio.model.ExportConfig
-import com.clippulse.studio.model.ExportProgressState
-import com.clippulse.studio.model.SignalType
-import com.clippulse.studio.model.VideoAnalysisResult
-import com.clippulse.studio.network.UniversalAiClient
-import com.clippulse.studio.service.ClipExportService
-import com.clippulse.studio.service.ExportSessionHolder
-import com.yausername.youtubedl_android.YoutubeDL
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-
-enum class SignalFilter(val label: String) {
-    ALL("All"),
-    MULTI("Multi-Signal"),
-    SUPER_CHAT("Super Chat"),
-    HEATMAP("Heatmap"),
-    CHAT_HYPE("Chat Hype"),
-    AI_PICK("AI Pick")
-}
-
-data class StudioUiState(
-    val urlInput: String = "",
-    val selectedLocalUri: Uri? = null,
-    val selectedLocalName: String = "",
-    val detectionMode: DetectionMode = DetectionMode.ALL,
-    val customAiQuery: String = "",
-    val minSuperChatUsd: Double = 0.0,
-    val isAnalyzing: Boolean = false,
-    val analysisStepText: String = "",
-    val analysisError: String? = null,
-    val analysisResult: VideoAnalysisResult? = null,
-    val activeFilter: SignalFilter = SignalFilter.ALL,
-    val focusedClipId: String? = null,
-    val aiSettings: AiSettings = AiSettings(),
-    val aiConnectionState: AiConnectionState = AiConnectionState.Disconnected,
-    val isFetchingModels: Boolean = false,
-    val modelFetchMessage: String? = null,
-    val isUpdatingYtDlp: Boolean = false,
-    val ytDlpUpdateMessage: String? = null,
-    val showAiManagerSheet: Boolean = false,
-    val exportConfig: ExportConfig = ExportConfig()
-)
-
-class ClipPulseViewModel(application: Application) : AndroidViewModel(application) {
-
-    private val configRepo = AiConfigRepository(application)
-    private val aiClient = UniversalAiClient()
-    private val ffmpegRunner = FfmpegRunner(application)
-    private val analysisEngine = VideoAnalysisEngine(application, aiClient, ffmpegRunner)
-
-    private val _uiState = MutableStateFlow(
-        StudioUiState(
-            aiSettings = configRepo.loadAiSettings(),
-            exportConfig = configRepo.loadExportConfig()
-        )
+""",
     )
-    val uiState: StateFlow<StudioUiState> = _uiState.asStateFlow()
 
-    val exportProgress: StateFlow<ExportProgressState> = ExportSessionHolder.progress
-
-    fun onUrlChanged(newUrl: String) {
-        _uiState.update {
-            it.copy(
-                urlInput = newUrl,
-                selectedLocalUri = null,
-                selectedLocalName = "",
-                analysisError = null
-            )
-        }
-    }
-
-    fun onLocalVideoSelected(uri: Uri) {
-        val name = resolveFileName(uri)
-        _uiState.update {
-            it.copy(
-                selectedLocalUri = uri,
-                selectedLocalName = name,
-                urlInput = "",
-                analysisError = null
-            )
-        }
-    }
-
-    fun onDetectionModeSelected(mode: DetectionMode) {
-        _uiState.update { it.copy(detectionMode = mode) }
-    }
-
-    fun onCustomAiQueryChanged(query: String) {
-        _uiState.update { it.copy(customAiQuery = query) }
-    }
-
-    fun onMinSuperChatChanged(minAmount: Double) {
-        _uiState.update { it.copy(minSuperChatUsd = minAmount) }
-    }
-
-    fun onSignalFilterSelected(filter: SignalFilter) {
-        _uiState.update { it.copy(activeFilter = filter) }
-    }
-
-    fun onFocusClip(clipId: String?) {
-        _uiState.update { it.copy(focusedClipId = clipId) }
-    }
-
-    fun toggleAiManagerSheet(show: Boolean) {
-        _uiState.update { it.copy(showAiManagerSheet = show) }
-    }
-
-    fun selectAiPreset(preset: AiProviderPreset) {
-        val updated = _uiState.value.aiSettings.copy(
-            preset = preset,
-            baseUrl = preset.defaultBaseUrl,
-            selectedModel = preset.defaultModel
-        )
-        configRepo.saveAiSettings(updated)
-        _uiState.update {
-            it.copy(
-                aiSettings = updated,
-                aiConnectionState = AiConnectionState.Disconnected,
-                modelFetchMessage = null
-            )
-        }
-    }
-
-    fun updateAiSettings(transform: (AiSettings) -> AiSettings) {
-        val updated = transform(_uiState.value.aiSettings)
-        configRepo.saveAiSettings(updated)
-        _uiState.update { it.copy(aiSettings = updated) }
-    }
-
-    fun addBackupKey(newKey: String) {
-        val trimmed = newKey.trim()
-        if (trimmed.isEmpty()) return
-        updateAiSettings { current ->
-            if (current.backupApiKeys.contains(trimmed)) current
-            else current.copy(backupApiKeys = current.backupApiKeys + trimmed)
-        }
-    }
-
-    fun removeBackupKey(keyToRemove: String) {
-        updateAiSettings { current ->
-            current.copy(backupApiKeys = current.backupApiKeys.filterNot { it == keyToRemove })
-        }
-    }
-
-    fun fetchModels() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isFetchingModels = true, modelFetchMessage = null) }
-            val currentSettings = _uiState.value.aiSettings
-            val res = aiClient.fetchModels(currentSettings)
-            res.onSuccess { models ->
-                val chosenModel = if (models.contains(currentSettings.selectedModel)) {
-                    currentSettings.selectedModel
-                } else {
-                    models.first()
-                }
-                val updated = currentSettings.copy(
-                    availableModels = models,
-                    selectedModel = chosenModel
-                )
-                configRepo.saveAiSettings(updated)
-                _uiState.update {
-                    it.copy(
-                        isFetchingModels = false,
-                        aiSettings = updated,
-                        modelFetchMessage = "Loaded ${models.size} models"
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isFetchingModels = false,
-                        modelFetchMessage = err.message ?: "Failed to fetch models"
-                    )
-                }
-            }
-        }
-    }
-
-    fun connectAiModel() {
-        viewModelScope.launch {
-            _uiState.update { it.copy(aiConnectionState = AiConnectionState.Testing) }
-            val settings = _uiState.value.aiSettings
-            val res = aiClient.testConnection(settings)
-            res.onSuccess { latencyMs ->
-                _uiState.update {
-                    it.copy(
-                        aiConnectionState = AiConnectionState.Connected(
-                            latencyMs = latencyMs,
-                            model = settings.selectedModel
-                        )
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        aiConnectionState = AiConnectionState.Error(
-                            err.message ?: "Connection failed"
-                        )
-                    )
-                }
-            }
-        }
-    }
-
-    fun updateYtDlpEngine() {
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(isUpdatingYtDlp = true, ytDlpUpdateMessage = "Updating yt-dlp binary...")
-            }
-            val msg = withContext(Dispatchers.IO) {
-                ClipPulseApp.ensureEnginesInitialized(getApplication())
-                runCatching {
-                    val status = YoutubeDL.getInstance().updateYoutubeDL(getApplication())
-                    "yt-dlp status: ${status?.name ?: "UP TO DATE"}"
-                }.getOrElse { err ->
-                    "Update failed: ${err.message ?: "Network error"}"
-                }
-            }
-            _uiState.update {
-                it.copy(isUpdatingYtDlp = false, ytDlpUpdateMessage = msg)
-            }
-        }
-    }
-
-    fun startAnalysis() {
-        val state = _uiState.value
-        if (state.isAnalyzing) return
-
-        val localUri = state.selectedLocalUri
-        val rawUrl = state.urlInput.trim()
-
-        if (localUri == null && rawUrl.isBlank()) {
-            _uiState.update { it.copy(analysisError = "Paste a YouTube/Facebook URL or pick a local video first.") }
-            return
-        }
-
-        viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    isAnalyzing = true,
-                    analysisError = null,
-                    analysisStepText = "Starting zero-download metadata scan...",
-                    activeFilter = SignalFilter.ALL
-                )
-            }
-
-            val result = if (localUri != null) {
-                analysisEngine.analyzeLocalVideo(
-                    uri = localUri,
-                    displayName = state.selectedLocalName.ifBlank { "Local_Video.mp4" },
-                    mode = state.detectionMode,
-                    aiSettings = state.aiSettings,
-                    customAiPrompt = state.customAiQuery.trim()
-                ) { step ->
-                    _uiState.update { it.copy(analysisStepText = step) }
-                }
-            } else {
-                analysisEngine.analyzeRemoteUrl(
-                    url = rawUrl,
-                    mode = state.detectionMode,
-                    aiSettings = state.aiSettings,
-                    minSuperChatUsd = state.minSuperChatUsd,
-                    customAiPrompt = state.customAiQuery.trim()
-                ) { step ->
-                    _uiState.update { it.copy(analysisStepText = step) }
-                }
-            }
-
-            result.onSuccess { analysis ->
-                _uiState.update {
-                    it.copy(
-                        isAnalyzing = false,
-                        analysisResult = analysis,
-                        analysisStepText = "",
-                        focusedClipId = analysis.clips.firstOrNull()?.id
-                    )
-                }
-            }.onFailure { err ->
-                _uiState.update {
-                    it.copy(
-                        isAnalyzing = false,
-                        analysisStepText = "",
-                        analysisError = err.message ?: "Analysis failed"
-                    )
-                }
-            }
-        }
-    }
-
-    fun toggleClipSelection(clipId: String) {
-        val analysis = _uiState.value.analysisResult ?: return
-        val updatedClips = analysis.clips.map { clip ->
-            if (clip.id == clipId) clip.copy(selected = !clip.selected) else clip
-        }
-        _uiState.update {
-            it.copy(analysisResult = analysis.copy(clips = updatedClips))
-        }
-    }
-
-    fun selectAllVisibleClips(select: Boolean) {
-        val analysis = _uiState.value.analysisResult ?: return
-        val filter = _uiState.value.activeFilter
-        val updatedClips = analysis.clips.map { clip ->
-            if (matchesFilter(clip, filter)) clip.copy(selected = select) else clip
-        }
-        _uiState.update {
-            it.copy(analysisResult = analysis.copy(clips = updatedClips))
-        }
-    }
-
-    fun nudgeClipStart(clipId: String, deltaSec: Double) {
-        val analysis = _uiState.value.analysisResult ?: return
-        val updatedClips = analysis.clips.map { clip ->
-            if (clip.id == clipId) {
-                val newStart = (clip.startSec + deltaSec)
-                    .coerceIn(0.0, (clip.endSec - 2.0).coerceAtLeast(0.0))
-                clip.copy(startSec = newStart)
-            } else clip
-        }
-        _uiState.update {
-            it.copy(analysisResult = analysis.copy(clips = updatedClips))
-        }
-    }
-
-    fun nudgeClipEnd(clipId: String, deltaSec: Double) {
-        val analysis = _uiState.value.analysisResult ?: return
-        val updatedClips = analysis.clips.map { clip ->
-            if (clip.id == clipId) {
-                val newEnd = (clip.endSec + deltaSec)
-                    .coerceIn(clip.startSec + 2.0, analysis.durationSec)
-                clip.copy(endSec = newEnd)
-            } else clip
-        }
-        _uiState.update {
-            it.copy(analysisResult = analysis.copy(clips = updatedClips))
-        }
-    }
-
-    fun updateExportConfig(transform: (ExportConfig) -> ExportConfig) {
-        val updated = transform(_uiState.value.exportConfig)
-        configRepo.saveExportConfig(updated)
-        _uiState.update { it.copy(exportConfig = updated) }
-    }
-
-    fun exportSelectedClips() {
-        val analysis = _uiState.value.analysisResult ?: return
-        val selected = analysis.clips.filter { it.selected }
-        if (selected.isEmpty()) return
-
-        ClipExportService.startExport(
-            context = getApplication(),
-            analysis = analysis,
-            selectedClips = selected,
-            config = _uiState.value.exportConfig
-        )
-    }
-
-    fun matchesFilter(clip: ClipCandidate, filter: SignalFilter): Boolean {
-        return when (filter) {
-            SignalFilter.ALL -> true
-            SignalFilter.MULTI -> clip.isMultiSignal
-            SignalFilter.SUPER_CHAT -> clip.signals.contains(SignalType.SUPER_CHAT)
-            SignalFilter.HEATMAP -> clip.signals.contains(SignalType.HEATMAP)
-            SignalFilter.CHAT_HYPE -> clip.signals.contains(SignalType.CHAT_HYPE)
-            SignalFilter.AI_PICK -> clip.signals.contains(SignalType.AI_PICK)
-        }
-    }
-
-    private fun resolveFileName(uri: Uri): String {
-        val resolver = getApplication<Application>().contentResolver
-        resolver.query(uri, null, null, null, null)?.use { cursor ->
-            val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-            if (idx >= 0 && cursor.moveToFirst()) {
-                return cursor.getString(idx) ?: "Local_Video.mp4"
-            }
-        }
-        return uri.lastPathSegment?.substringAfterLast('/') ?: "Local_Video.mp4"
-    }
-}
-'''
-
-FILES["app/src/main/java/com/clippulse/studio/ui/components/HeatmapTimeline.kt"] = r'''package com.clippulse.studio.ui.components
+    write_file(
+        f"{base}/ui/components/ClipPulseLogo.kt",
+        """
+package com.clippulse.studio.ui.components
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
+import com.clippulse.studio.ui.theme.ColorCyan
+import com.clippulse.studio.ui.theme.ColorGold
+import com.clippulse.studio.ui.theme.ElectricIndigo
+import com.clippulse.studio.ui.theme.MatteSlate
+
+@Composable
+fun ClipPulseLogo(modifier: Modifier = Modifier.size(34.dp)) {
+    Canvas(modifier = modifier) {
+        val w = size.width
+        val h = size.height
+
+        drawRoundRect(
+            color = MatteSlate,
+            size = Size(w, h),
+            cornerRadius = CornerRadius(w * 0.24f, h * 0.24f)
+        )
+
+        drawRoundRect(
+            brush = Brush.linearGradient(listOf(ElectricIndigo, ColorCyan)),
+            size = Size(w, h),
+            cornerRadius = CornerRadius(w * 0.24f, h * 0.24f),
+            style = Stroke(width = w * 0.06f)
+        )
+
+        val pulsePath = Path().apply {
+            moveTo(w * 0.16f, h * 0.54f)
+            lineTo(w * 0.30f, h * 0.54f)
+            lineTo(w * 0.39f, h * 0.28f)
+            lineTo(w * 0.50f, h * 0.76f)
+            lineTo(w * 0.61f, h * 0.34f)
+            lineTo(w * 0.70f, h * 0.58f)
+            lineTo(w * 0.84f, h * 0.54f)
+        }
+
+        drawPath(
+            path = pulsePath,
+            brush = Brush.horizontalGradient(listOf(ElectricIndigo, ColorCyan)),
+            style = Stroke(
+                width = w * 0.085f,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+
+        drawCircle(
+            color = ColorGold,
+            radius = w * 0.08f,
+            center = Offset(w * 0.78f, h * 0.24f)
+        )
+    }
+}
+""",
+    )
+
+    write_file(
+        f"{base}/ui/components/InteractiveHeatmapTimeline.kt",
+        """
+package com.clippulse.studio.ui.components
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -3042,13 +3167,15 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -3056,186 +3183,366 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.clippulse.studio.engine.TimeUtils
 import com.clippulse.studio.model.ClipCandidate
 import com.clippulse.studio.model.HeatmapPoint
-import com.clippulse.studio.model.SignalType
-import com.clippulse.studio.ui.theme.AiPickCyan
-import com.clippulse.studio.ui.theme.ChatHypePurple
+import com.clippulse.studio.model.TimeFormatter
+import com.clippulse.studio.ui.theme.ColorCrimson
+import com.clippulse.studio.ui.theme.ColorGold
 import com.clippulse.studio.ui.theme.ElectricIndigo
+import com.clippulse.studio.ui.theme.ElevatedSlate
 import com.clippulse.studio.ui.theme.HairlineBorder
-import com.clippulse.studio.ui.theme.HeatmapCrimson
-import com.clippulse.studio.ui.theme.SuperChatGold
+import com.clippulse.studio.ui.theme.MatteSlate
 import com.clippulse.studio.ui.theme.TextMuted
+import com.clippulse.studio.ui.theme.TextPrimary
 import com.clippulse.studio.ui.theme.TextSecondary
-import kotlin.math.abs
 
 @Composable
-fun HeatmapTimeline(
+fun InteractiveHeatmapTimeline(
     durationSec: Double,
     heatmap: List<HeatmapPoint>,
     clips: List<ClipCandidate>,
     focusedClipId: String?,
-    onSelectClipFromTimeline: (String) -> Unit,
+    onJumpToTime: (Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val safeDuration = durationSec.coerceAtLeast(1.0)
 
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = "SIGNAL TIMELINE & REPLAY CURVE",
-                color = TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "${clips.size} candidate(s)",
-                color = AiPickCyan,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MatteSlate,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, HairlineBorder)
+    ) {
+        Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "REPLAY HEATMAP & SIGNAL TIMELINE",
+                    color = TextSecondary,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    letterSpacing = 0.8.sp
+                )
+                Text(
+                    text = "Tap curve to jump",
+                    color = TextMuted,
+                    fontSize = 11.sp
+                )
+            }
 
-        Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
-        Canvas(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(84.dp)
-                .pointerInput(clips, safeDuration) {
-                    detectTapGestures { offset ->
-                        if (clips.isEmpty() || size.width <= 0) return@detectTapGestures
-                        val tappedSec = (offset.x / size.width.toFloat()) * safeDuration
-                        val nearest = clips.minByOrNull { clip ->
-                            val mid = (clip.startSec + clip.endSec) / 2.0
-                            abs(mid - tappedSec)
+            Canvas(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(86.dp)
+                    .pointerInput(safeDuration, clips) {
+                        detectTapGestures { offset ->
+                            val ratio = (offset.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            onJumpToTime(ratio * safeDuration)
                         }
-                        if (nearest != null) {
-                            onSelectClipFromTimeline(nearest.id)
+                    }
+                    .pointerInput(safeDuration, clips) {
+                        detectHorizontalDragGestures { change, _ ->
+                            val ratio = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                            onJumpToTime(ratio * safeDuration)
                         }
                     }
-                }
-        ) {
-            val w = size.width
-            val h = size.height
-            val bottomY = h - 4.dp.toPx()
-            val topPad = 8.dp.toPx()
-            val chartHeight = (bottomY - topPad).coerceAtLeast(10f)
+            ) {
+                val w = size.width
+                val h = size.height
 
-            drawLine(
-                color = HairlineBorder,
-                start = Offset(0f, bottomY),
-                end = Offset(w, bottomY),
-                strokeWidth = 1.dp.toPx()
-            )
-            drawLine(
-                color = HairlineBorder.copy(alpha = 0.45f),
-                start = Offset(0f, topPad + chartHeight * 0.5f),
-                end = Offset(w, topPad + chartHeight * 0.5f),
-                strokeWidth = 1.dp.toPx()
-            )
+                // Base track background
+                drawRoundRect(
+                    color = ElevatedSlate,
+                    size = Size(w, h)
+                )
 
-            if (heatmap.size >= 2) {
-                val strokePath = Path()
-                val fillPath = Path()
-
-                heatmap.forEachIndexed { idx, pt ->
-                    val midSec = ((pt.startSec + pt.endSec) / 2.0).coerceIn(0.0, safeDuration)
-                    val x = ((midSec / safeDuration) * w).toFloat()
-                    val y = bottomY - (pt.value.toFloat().coerceIn(0f, 1f) * chartHeight)
-
-                    if (idx == 0) {
-                        strokePath.moveTo(x, y)
-                        fillPath.moveTo(x, bottomY)
-                        fillPath.lineTo(x, y)
-                    } else {
-                        strokePath.lineTo(x, y)
-                        fillPath.lineTo(x, y)
-                    }
-                    if (idx == heatmap.lastIndex) {
-                        fillPath.lineTo(x, bottomY)
-                        fillPath.close()
-                    }
+                // Horizontal guide lines
+                for (row in 1..2) {
+                    val y = h * (row / 3f)
+                    drawLine(
+                        color = HairlineBorder,
+                        start = Offset(0f, y),
+                        end = Offset(w, y),
+                        strokeWidth = 1.dp.toPx()
+                    )
                 }
 
-                drawPath(
-                    path = fillPath,
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            HeatmapCrimson.copy(alpha = 0.35f),
-                            ElectricIndigo.copy(alpha = 0.05f)
+                // Plot heatmap gradient curve
+                if (heatmap.size >= 2) {
+                    val linePath = Path()
+                    val fillPath = Path()
+
+                    heatmap.forEachIndexed { idx, point ->
+                        val centerSec = (point.startSec + point.endSec) / 2.0
+                        val x = ((centerSec / safeDuration).toFloat().coerceIn(0f, 1f)) * w
+                        val y = h - (point.value.toFloat().coerceIn(0.05f, 1f) * (h * 0.82f)) - (h * 0.06f)
+
+                        if (idx == 0) {
+                            linePath.moveTo(0f, y)
+                            fillPath.moveTo(0f, h)
+                            fillPath.lineTo(0f, y)
+                        }
+                        linePath.lineTo(x, y)
+                        fillPath.lineTo(x, y)
+
+                        if (idx == heatmap.lastIndex) {
+                            linePath.lineTo(w, y)
+                            fillPath.lineTo(w, y)
+                            fillPath.lineTo(w, h)
+                            fillPath.close()
+                        }
+                    }
+
+                    drawPath(
+                        path = fillPath,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                ColorCrimson.copy(alpha = 0.34f),
+                                ElectricIndigo.copy(alpha = 0.06f)
+                            )
                         )
                     )
-                )
-                drawPath(
-                    path = strokePath,
-                    color = HeatmapCrimson.copy(alpha = 0.85f),
-                    style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-                )
+
+                    drawPath(
+                        path = linePath,
+                        brush = Brush.horizontalGradient(
+                            colors = listOf(ElectricIndigo, ColorCrimson, ColorGold)
+                        ),
+                        style = Stroke(width = 2.2.dp.toPx(), cap = StrokeCap.Round)
+                    )
+                }
+
+                // Plot clip range highlights and vertical markers
+                for (clip in clips) {
+                    val startX = ((clip.startSec / safeDuration).toFloat().coerceIn(0f, 1f)) * w
+                    val endX = ((clip.endSec / safeDuration).toFloat().coerceIn(0f, 1f)) * w
+                    val markerColor = if (clip.isMultiSignal) {
+                        ColorGold
+                    } else {
+                        clip.signals.firstOrNull()?.badgeColor ?: ElectricIndigo
+                    }
+                    val isFocused = clip.id == focusedClipId
+
+                    drawRect(
+                        color = markerColor.copy(alpha = if (isFocused) 0.34f else 0.16f),
+                        topLeft = Offset(startX, 0f),
+                        size = Size((endX - startX).coerceAtLeast(3.dp.toPx()), h)
+                    )
+
+                    drawLine(
+                        color = if (isFocused) TextPrimary else markerColor,
+                        start = Offset(startX, 0f),
+                        end = Offset(startX, h),
+                        strokeWidth = if (isFocused) 2.5.dp.toPx() else 1.5.dp.toPx()
+                    )
+                }
             }
 
-            for (clip in clips) {
-                val startX = ((clip.startSec / safeDuration) * w).toFloat().coerceIn(0f, w)
-                val endX = ((clip.endSec / safeDuration) * w).toFloat().coerceIn(startX + 2f, w)
-                val markerColor = primarySignalColor(clip)
-                val isFocused = clip.id == focusedClipId
+            Spacer(modifier = Modifier.height(6.dp))
 
-                drawRect(
-                    color = markerColor.copy(alpha = if (isFocused) 0.34f else if (clip.selected) 0.18f else 0.07f),
-                    topLeft = Offset(startX, topPad),
-                    size = Size((endX - startX).coerceAtLeast(3f), chartHeight)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = "00:00",
+                    color = TextMuted,
+                    fontSize = 11.sp
                 )
-
-                val centerX = (startX + endX) / 2f
-                drawLine(
-                    color = markerColor.copy(alpha = if (clip.selected) 0.95f else 0.45f),
-                    start = Offset(centerX, 2.dp.toPx()),
-                    end = Offset(centerX, bottomY),
-                    strokeWidth = if (isFocused) 3.dp.toPx() else 2.dp.toPx(),
-                    cap = StrokeCap.Round
+                Text(
+                    text = TimeFormatter.formatTimestamp(safeDuration / 2.0),
+                    color = TextMuted,
+                    fontSize = 11.sp
+                )
+                Text(
+                    text = TimeFormatter.formatTimestamp(safeDuration),
+                    color = TextMuted,
+                    fontSize = 11.sp
                 )
             }
         }
+    }
+}
+""",
+    )
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text("00:00", color = TextMuted, fontSize = 10.sp)
-            Text(TimeUtils.formatTimestamp(safeDuration / 2.0), color = TextMuted, fontSize = 10.sp)
-            Text(TimeUtils.formatTimestamp(safeDuration), color = TextMuted, fontSize = 10.sp)
+    write_file(
+        f"{base}/ui/components/ClipPreviewPlayer.kt",
+        """
+package com.clippulse.studio.ui.components
+
+import android.net.Uri
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Pause
+import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
+import com.clippulse.studio.model.TimeFormatter
+import com.clippulse.studio.ui.theme.ElectricIndigoLight
+import com.clippulse.studio.ui.theme.ElevatedSlate
+import com.clippulse.studio.ui.theme.HairlineBorder
+import com.clippulse.studio.ui.theme.TextSecondary
+import java.io.File
+
+@Composable
+fun ClipPreviewPlayer(
+    localFilePath: String,
+    startSec: Double,
+    endSec: Double,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    var isPlaying by remember { mutableStateOf(false) }
+
+    val exoPlayer = remember(localFilePath) {
+        ExoPlayer.Builder(context).build().apply {
+            val uri = Uri.fromFile(File(localFilePath))
+            setMediaItem(MediaItem.fromUri(uri))
+            prepare()
+            seekTo((startSec * 1000.0).toLong())
+        }
+    }
+
+    LaunchedEffect(startSec) {
+        exoPlayer.seekTo((startSec * 1000.0).toLong())
+    }
+
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = ElevatedSlate,
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, HairlineBorder)
+    ) {
+        Column(modifier = Modifier.padding(8.dp)) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        player = exoPlayer
+                        useController = false
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(170.dp)
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = {
+                            if (exoPlayer.isPlaying) {
+                                exoPlayer.pause()
+                            } else {
+                                if (exoPlayer.currentPosition >= (endSec * 1000.0).toLong()) {
+                                    exoPlayer.seekTo((startSec * 1000.0).toLong())
+                                }
+                                exoPlayer.play()
+                            }
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+                            contentDescription = "Play or pause preview",
+                            tint = ElectricIndigoLight
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    IconButton(
+                        onClick = {
+                            exoPlayer.seekTo((startSec * 1000.0).toLong())
+                            exoPlayer.play()
+                        },
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Replay clip start",
+                            tint = TextSecondary
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Preview: ${TimeFormatter.formatTimestamp(startSec)} - ${TimeFormatter.formatTimestamp(endSec)}",
+                    color = TextSecondary,
+                    fontSize = 11.sp
+                )
+            }
         }
     }
 }
+""",
+    )
 
-fun primarySignalColor(clip: ClipCandidate): Color {
-    return when {
-        clip.signals.contains(SignalType.SUPER_CHAT) -> SuperChatGold
-        clip.signals.contains(SignalType.HEATMAP) -> HeatmapCrimson
-        clip.signals.contains(SignalType.CHAT_HYPE) -> ChatHypePurple
-        clip.signals.contains(SignalType.AI_PICK) -> AiPickCyan
-        else -> ElectricIndigo
-    }
-}
-'''
-
-FILES["app/src/main/java/com/clippulse/studio/ui/components/ClipCard.kt"] = r'''@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+    write_file(
+        f"{base}/ui/components/ClipCard.kt",
+        """
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.clippulse.studio.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -3249,81 +3556,75 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.LocalFireDepartment
-import androidx.compose.material.icons.filled.MonetizationOn
+import androidx.compose.material.icons.rounded.ExpandLess
+import androidx.compose.material.icons.rounded.ExpandMore
+import androidx.compose.material.icons.rounded.Paid
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.clippulse.studio.engine.TimeUtils
 import com.clippulse.studio.model.ClipCandidate
-import com.clippulse.studio.model.SignalType
-import com.clippulse.studio.ui.theme.AiPickCyan
-import com.clippulse.studio.ui.theme.ChatHypePurple
+import com.clippulse.studio.model.TimeFormatter
+import com.clippulse.studio.ui.theme.ColorEmerald
+import com.clippulse.studio.ui.theme.ColorGold
 import com.clippulse.studio.ui.theme.ElectricIndigo
+import com.clippulse.studio.ui.theme.ElectricIndigoLight
 import com.clippulse.studio.ui.theme.ElevatedSlate
 import com.clippulse.studio.ui.theme.HairlineBorder
-import com.clippulse.studio.ui.theme.HeatmapCrimson
-import com.clippulse.studio.ui.theme.MatteSlateCard
-import com.clippulse.studio.ui.theme.MultiSignalOrange
-import com.clippulse.studio.ui.theme.SuperChatGold
+import com.clippulse.studio.ui.theme.MatteSlate
 import com.clippulse.studio.ui.theme.TextMuted
 import com.clippulse.studio.ui.theme.TextPrimary
 import com.clippulse.studio.ui.theme.TextSecondary
+import java.util.Locale
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ClipCard(
     clip: ClipCandidate,
+    isExpanded: Boolean,
     isFocused: Boolean,
-    onToggleSelected: () -> Unit,
+    localVideoPath: String?,
+    onToggleSelect: () -> Unit,
+    onToggleExpand: () -> Unit,
     onNudgeStart: (Double) -> Unit,
     onNudgeEnd: (Double) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var expanded by remember(clip.id) { mutableStateOf(isFocused || clip.superChat != null) }
-
     val borderColor = when {
         isFocused -> ElectricIndigo
-        clip.selected -> ElectricIndigo.copy(alpha = 0.55f)
-        else -> HairlineBorder
+        clip.isMultiSignal -> ColorGold.copy(alpha = 0.55f)
+        clip.selected -> HairlineBorder
+        else -> HairlineBorder.copy(alpha = 0.5f)
     }
 
     Surface(
-        modifier = modifier
-            .fillMaxWidth()
-            .clickable { expanded = !expanded },
-        shape = RoundedCornerShape(14.dp),
-        color = MatteSlateCard,
+        modifier = modifier.fillMaxWidth(),
+        color = MatteSlate,
+        shape = RoundedCornerShape(16.dp),
         border = BorderStroke(if (isFocused) 1.5.dp else 1.dp, borderColor)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onToggleExpand() },
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Checkbox(
                     checked = clip.selected,
-                    onCheckedChange = { onToggleSelected() },
+                    onCheckedChange = { onToggleSelect() },
                     colors = CheckboxDefaults.colors(
                         checkedColor = ElectricIndigo,
                         uncheckedColor = TextMuted
@@ -3336,17 +3637,15 @@ fun ClipCard(
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         if (clip.isMultiSignal) {
-                            SignalBadgePill(
-                                text = "Multi-Signal",
-                                color = MultiSignalOrange,
-                                showFire = true
+                            SignalPillBadge(
+                                label = "\uD83D\uDD25 Multi-Signal",
+                                accentColor = ColorGold
                             )
                         }
-                        clip.signals.forEach { signal ->
-                            SignalBadgePill(
-                                text = signal.label,
-                                color = signalBadgeColor(signal),
-                                showFire = false
+                        for (signal in clip.signals) {
+                            SignalPillBadge(
+                                label = signal.label,
+                                accentColor = signal.badgeColor
                             )
                         }
                     }
@@ -3362,132 +3661,194 @@ fun ClipCard(
                         overflow = TextOverflow.Ellipsis
                     )
 
-                    Spacer(modifier = Modifier.height(3.dp))
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Text(
-                        text = "${TimeUtils.formatTimestamp(clip.startSec)} - ${TimeUtils.formatTimestamp(clip.endSec)}  •  ${clip.durationSec.toInt()}s",
-                        color = TextSecondary,
-                        fontSize = 12.sp
+                        text = String.format(
+                            Locale.US,
+                            "%s - %s  •  %.1fs",
+                            TimeFormatter.formatTimestamp(clip.startSec),
+                            TimeFormatter.formatTimestamp(clip.endSec),
+                            clip.durationSec
+                        ),
+                        color = ElectricIndigoLight,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 }
 
                 Spacer(modifier = Modifier.width(8.dp))
 
                 Column(horizontalAlignment = Alignment.End) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(ElectricIndigo.copy(alpha = 0.16f))
-                            .border(1.dp, ElectricIndigo.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                    ) {
-                        Text(
-                            text = "${clip.score}",
-                            color = Color.White,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                    val hypeColor = when {
+                        clip.hypeScore >= 88 -> ColorGold
+                        clip.hypeScore >= 76 -> ColorEmerald
+                        else -> ElectricIndigoLight
                     }
-                    IconButton(
-                        onClick = { expanded = !expanded },
-                        modifier = Modifier.size(28.dp)
+                    Surface(
+                        color = hypeColor.copy(alpha = 0.16f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, hypeColor.copy(alpha = 0.45f))
                     ) {
-                        Icon(
-                            imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                            contentDescription = "Expand clip details",
-                            tint = TextSecondary
-                        )
+                        Column(
+                            modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "${clip.hypeScore}",
+                                color = hypeColor,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = "HYPE",
+                                color = hypeColor,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Icon(
+                        imageVector = if (isExpanded) Icons.Rounded.ExpandLess else Icons.Rounded.ExpandMore,
+                        contentDescription = "Expand clip controls",
+                        tint = TextSecondary,
+                        modifier = Modifier.size(20.dp)
+                    )
                 }
             }
 
-            if (clip.superChat != null) {
+            // Super Chat Donor Highlight Card
+            clip.superChat?.let { sc ->
                 Spacer(modifier = Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(SuperChatGold.copy(alpha = 0.12f))
-                        .border(1.dp, SuperChatGold.copy(alpha = 0.45f), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 10.dp, vertical = 8.dp)
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = ColorGold.copy(alpha = 0.12f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, ColorGold.copy(alpha = 0.4f))
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.MonetizationOn,
-                        contentDescription = null,
-                        tint = SuperChatGold,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "${clip.superChat.authorName}  •  ${clip.superChat.amountText}",
-                            color = SuperChatGold,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
+                    Row(
+                        modifier = Modifier.padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Paid,
+                            contentDescription = "Super Chat",
+                            tint = ColorGold,
+                            modifier = Modifier.size(18.dp)
                         )
-                        if (clip.superChat.message.isNotBlank()) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = clip.superChat.message,
-                                color = TextPrimary,
+                                text = "${sc.donor} donated ${sc.amountDisplay}",
+                                color = ColorGold,
                                 fontSize = 12.sp,
-                                maxLines = if (expanded) 5 else 2,
-                                overflow = TextOverflow.Ellipsis
+                                fontWeight = FontWeight.Bold
                             )
+                            if (sc.message.isNotBlank()) {
+                                Text(
+                                    text = sc.message,
+                                    color = TextPrimary,
+                                    fontSize = 12.sp
+                                )
+                            }
                         }
                     }
                 }
             }
 
-            AnimatedVisibility(visible = expanded) {
+            // Transcript Quote
+            if (clip.transcriptQuote.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "\"${clip.transcriptQuote}\"",
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                    fontStyle = FontStyle.Italic,
+                    maxLines = if (isExpanded) 5 else 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Expandable Precision Trim & Inline Media3 Preview
+            AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.padding(top = 10.dp)) {
                     HorizontalDivider(color = HairlineBorder)
-                    Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
 
                     if (clip.reason.isNotBlank()) {
                         Text(
-                            text = clip.reason,
-                            color = AiPickCyan,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
+                            text = "Signal Rationale: ${clip.reason}",
+                            color = TextSecondary,
+                            fontSize = 12.sp
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
 
-                    if (clip.transcriptSnippet.isNotBlank()) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(ElevatedSlate)
-                                .padding(8.dp)
-                        ) {
-                            Text(
-                                text = "\"${clip.transcriptSnippet}\"",
-                                color = TextSecondary,
-                                fontSize = 12.sp,
-                                lineHeight = 16.sp
-                            )
-                        }
+                    if (!localVideoPath.isNullOrBlank()) {
+                        ClipPreviewPlayer(
+                            localFilePath = localVideoPath,
+                            startSec = clip.startSec,
+                            endSec = clip.endSec
+                        )
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
-                    Row(
+                    // Precision Trim Nudge Controls (-2s / +2s Start & End)
+                    Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        color = ElevatedSlate,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, HairlineBorder)
                     ) {
-                        TrimNudgeGroup(
-                            label = "Start ${TimeUtils.formatTimestamp(clip.startSec)}",
-                            onMinusTwo = { onNudgeStart(-2.0) },
-                            onPlusTwo = { onNudgeStart(2.0) },
-                            modifier = Modifier.weight(1f)
-                        )
-                        TrimNudgeGroup(
-                            label = "End ${TimeUtils.formatTimestamp(clip.endSec)}",
-                            onMinusTwo = { onNudgeEnd(-2.0) },
-                            onPlusTwo = { onNudgeEnd(2.0) },
-                            modifier = Modifier.weight(1f)
-                        )
+                        Column(modifier = Modifier.padding(10.dp)) {
+                            Text(
+                                text = "PRECISION TRIM NUDGE",
+                                color = TextMuted,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 0.7.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Start: ${TimeFormatter.formatTimestamp(clip.startSec)}",
+                                    color = TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    NudgeChipButton(label = "-2s", onClick = { onNudgeStart(-2.0) })
+                                    NudgeChipButton(label = "+2s", onClick = { onNudgeStart(2.0) })
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "End: ${TimeFormatter.formatTimestamp(clip.endSec)}",
+                                    color = TextPrimary,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    NudgeChipButton(label = "-2s", onClick = { onNudgeEnd(-2.0) })
+                                    NudgeChipButton(label = "+2s", onClick = { onNudgeEnd(2.0) })
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -3496,98 +3857,51 @@ fun ClipCard(
 }
 
 @Composable
-private fun TrimNudgeGroup(
-    label: String,
-    onMinusTwo: () -> Unit,
-    onPlusTwo: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(ElevatedSlate)
-            .border(1.dp, HairlineBorder, RoundedCornerShape(10.dp))
-            .padding(6.dp)
+private fun SignalPillBadge(label: String, accentColor: Color) {
+    Surface(
+        color = accentColor.copy(alpha = 0.16f),
+        shape = RoundedCornerShape(6.dp),
+        border = BorderStroke(1.dp, accentColor.copy(alpha = 0.45f))
     ) {
-        Text(text = label, color = TextSecondary, fontSize = 11.sp, fontWeight = FontWeight.Medium)
-        Spacer(modifier = Modifier.height(4.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            OutlinedButton(
-                onClick = onMinusTwo,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                shape = RoundedCornerShape(6.dp),
-                border = BorderStroke(1.dp, HairlineBorder),
-                modifier = Modifier.height(28.dp)
-            ) {
-                Text("-2s", color = TextPrimary, fontSize = 11.sp)
-            }
-            OutlinedButton(
-                onClick = onPlusTwo,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
-                shape = RoundedCornerShape(6.dp),
-                border = BorderStroke(1.dp, HairlineBorder),
-                modifier = Modifier.height(28.dp)
-            ) {
-                Text("+2s", color = TextPrimary, fontSize = 11.sp)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SignalBadgePill(
-    text: String,
-    color: Color,
-    showFire: Boolean
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(color.copy(alpha = 0.16f))
-            .border(1.dp, color.copy(alpha = 0.45f), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
-    ) {
-        if (showFire) {
-            Icon(
-                imageVector = Icons.Default.LocalFireDepartment,
-                contentDescription = null,
-                tint = color,
-                modifier = Modifier.size(12.dp)
-            )
-            Spacer(modifier = Modifier.width(2.dp))
-        }
         Text(
-            text = text,
-            color = color,
+            text = label,
+            color = accentColor,
             fontSize = 10.sp,
-            fontWeight = FontWeight.SemiBold
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp)
         )
     }
 }
 
-private fun signalBadgeColor(signal: SignalType): Color {
-    return when (signal) {
-        SignalType.SUPER_CHAT -> SuperChatGold
-        SignalType.HEATMAP -> HeatmapCrimson
-        SignalType.CHAT_HYPE -> ChatHypePurple
-        SignalType.AI_PICK -> AiPickCyan
-        SignalType.AUDIO_PEAK -> ElectricIndigo
+@Composable
+private fun NudgeChipButton(label: String, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        shape = RoundedCornerShape(8.dp),
+        border = BorderStroke(1.dp, HairlineBorder),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+        modifier = Modifier.height(28.dp)
+    ) {
+        Text(
+            text = label,
+            color = ElectricIndigoLight,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold
+        )
     }
 }
-'''
+""",
+    )
 
-FILES["app/src/main/java/com/clippulse/studio/ui/components/AiManagerSheet.kt"] = r'''@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+    write_file(
+        f"{base}/ui/components/AiManagerSheet.kt",
+        """
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.clippulse.studio.ui.components
 
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -3595,6 +3909,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -3602,19 +3917,21 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDropDown
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Update
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -3623,6 +3940,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
@@ -3634,57 +3952,66 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.clippulse.studio.data.AiConfigStore
+import com.clippulse.studio.model.AiConfig
 import com.clippulse.studio.model.AiConnectionState
-import com.clippulse.studio.model.AiProviderPreset
-import com.clippulse.studio.ui.StudioUiState
-import com.clippulse.studio.ui.theme.AiPickCyan
+import com.clippulse.studio.model.AiPreset
+import com.clippulse.studio.ui.theme.ColorCrimson
+import com.clippulse.studio.ui.theme.ColorEmerald
 import com.clippulse.studio.ui.theme.ElectricIndigo
+import com.clippulse.studio.ui.theme.ElectricIndigoLight
 import com.clippulse.studio.ui.theme.ElevatedSlate
 import com.clippulse.studio.ui.theme.HairlineBorder
-import com.clippulse.studio.ui.theme.HeatmapCrimson
-import com.clippulse.studio.ui.theme.MatteSlateCard
-import com.clippulse.studio.ui.theme.SuccessGreen
+import com.clippulse.studio.ui.theme.MatteSlate
+import com.clippulse.studio.ui.theme.TextMuted
 import com.clippulse.studio.ui.theme.TextPrimary
 import com.clippulse.studio.ui.theme.TextSecondary
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun AiManagerSheet(
-    state: StudioUiState,
+    config: AiConfig,
+    connectionState: AiConnectionState,
+    isFetchingModels: Boolean,
+    modelFetchError: String?,
+    isUpdatingYtDlp: Boolean,
+    ytDlpUpdateStatus: String?,
     onDismiss: () -> Unit,
-    onSelectPreset: (AiProviderPreset) -> Unit,
-    onBaseUrlChanged: (String) -> Unit,
-    onPrimaryKeyChanged: (String) -> Unit,
+    onSelectPreset: (AiPreset) -> Unit,
+    onUpdateBaseUrl: (String) -> Unit,
+    onUpdatePrimaryKey: (String) -> Unit,
     onAddBackupKey: (String) -> Unit,
     onRemoveBackupKey: (String) -> Unit,
     onSelectModel: (String) -> Unit,
     onFetchModels: () -> Unit,
-    onConnect: () -> Unit,
-    onToggleSmartPeak: (Boolean) -> Unit,
+    onTestConnect: () -> Unit,
+    onToggleSmartPeakOnly: (Boolean) -> Unit,
     onToggleOfflineMode: (Boolean) -> Unit,
     onUpdateYtDlp: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showKey by remember { mutableStateOf(false) }
+    var showPrimaryKey by remember { mutableStateOf(false) }
     var newBackupKeyInput by remember { mutableStateOf("") }
     var modelDropdownExpanded by remember { mutableStateOf(false) }
+    var modelSearchFilter by remember { mutableStateOf("") }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
-        containerColor = MatteSlateCard
+        containerColor = MatteSlate,
+        contentColor = TextPrimary
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 18.dp, vertical = 8.dp)
+                .padding(horizontal = 18.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text(
                 text = "Universal AI API & Engine Manager",
@@ -3692,48 +4019,26 @@ fun AiManagerSheet(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold
             )
+
             Text(
-                text = "Connect any OpenAI-compatible endpoint or run 100% offline.",
+                text = "Connect any OpenAI-compatible endpoint with automatic multi-key failover, or run 100% offline.",
                 color = TextSecondary,
                 fontSize = 12.sp
             )
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            SettingSwitchRow(
-                title = "100% Offline / No-AI Mode",
-                subtitle = "Run Heatmap, Super Chat, Chat Velocity & Audio Peaks with zero API keys",
-                checked = state.aiSettings.offlineMode,
-                onCheckedChange = onToggleOfflineMode
-            )
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            SettingSwitchRow(
-                title = "Smart Peak-Only Mode (~85% Token Savings)",
-                subtitle = "Slices only 2-minute caption windows around detected peaks/Super Chats",
-                checked = state.aiSettings.smartPeakOnly,
-                onCheckedChange = onToggleSmartPeak
-            )
-
-            Spacer(modifier = Modifier.height(14.dp))
-            HorizontalDivider(color = HairlineBorder)
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text("API Provider Presets", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(6.dp))
+            // 1-Tap Provider Presets
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                AiProviderPreset.entries.forEach { preset ->
+                AiPreset.entries.forEach { preset ->
                     FilterChip(
-                        selected = state.aiSettings.preset == preset,
+                        selected = config.preset == preset,
                         onClick = { onSelectPreset(preset) },
                         label = { Text(preset.displayName, fontSize = 12.sp) },
                         colors = FilterChipDefaults.filterChipColors(
                             selectedContainerColor = ElectricIndigo,
-                            selectedLabelColor = Color.White,
+                            selectedLabelColor = TextPrimary,
                             containerColor = ElevatedSlate,
                             labelColor = TextSecondary
                         )
@@ -3741,28 +4046,35 @@ fun AiManagerSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-
+            // Base URL Input + Normalized Preview
             OutlinedTextField(
-                value = state.aiSettings.baseUrl,
-                onValueChange = onBaseUrlChanged,
+                value = config.baseUrl,
+                onValueChange = onUpdateBaseUrl,
                 label = { Text("Base URL") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
+            Text(
+                text = "Normalized endpoint: ${AiConfigStore.normalizeBaseUrl(config.baseUrl)}",
+                color = TextMuted,
+                fontSize = 11.sp
+            )
 
-            Spacer(modifier = Modifier.height(10.dp))
-
+            // Primary API Key Input
             OutlinedTextField(
-                value = state.aiSettings.primaryApiKey,
-                onValueChange = onPrimaryKeyChanged,
+                value = config.primaryKey,
+                onValueChange = onUpdatePrimaryKey,
                 label = { Text("Primary API Key") },
                 singleLine = true,
-                visualTransformation = if (showKey) VisualTransformation.None else PasswordVisualTransformation(),
+                visualTransformation = if (showPrimaryKey) {
+                    VisualTransformation.None
+                } else {
+                    PasswordVisualTransformation()
+                },
                 trailingIcon = {
-                    IconButton(onClick = { showKey = !showKey }) {
+                    IconButton(onClick = { showPrimaryKey = !showPrimaryKey }) {
                         Icon(
-                            imageVector = if (showKey) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            imageVector = if (showPrimaryKey) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
                             contentDescription = "Toggle API key visibility",
                             tint = TextSecondary
                         )
@@ -3771,106 +4083,123 @@ fun AiManagerSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Backup Failover Keys
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = ElevatedSlate,
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, HairlineBorder)
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Text(
+                        text = "BACKUP FAILOVER KEYS (${config.backupKeys.size})",
+                        color = TextSecondary,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = "Automatically rotates to next key on HTTP 401, 403, 429, or 5xx.",
+                        color = TextMuted,
+                        fontSize = 11.sp
+                    )
 
-            Text(
-                text = "Backup Failover Keys (${state.aiSettings.backupApiKeys.size})",
-                color = TextSecondary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                text = "Auto-rotates on HTTP 429 rate limits or 401 auth errors.",
-                color = TextSecondary,
-                fontSize = 11.sp
-            )
-            Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = newBackupKeyInput,
+                            onValueChange = { newBackupKeyInput = it },
+                            placeholder = { Text("Add backup sk-...", fontSize = 12.sp) },
+                            singleLine = true,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = {
+                                onAddBackupKey(newBackupKeyInput)
+                                newBackupKeyInput = ""
+                            }
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Add,
+                                contentDescription = "Add backup key",
+                                tint = ElectricIndigoLight
+                            )
+                        }
+                    }
+
+                    config.backupKeys.forEachIndexed { idx, key ->
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            val masked = if (key.length > 10) {
+                                "${key.take(6)}••••${key.takeLast(4)}"
+                            } else {
+                                "••••••••"
+                            }
+                            Text(
+                                text = "Backup #${idx + 1}: $masked",
+                                color = TextPrimary,
+                                fontSize = 12.sp
+                            )
+                            IconButton(
+                                onClick = { onRemoveBackupKey(key) },
+                                modifier = Modifier.size(28.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Delete,
+                                    contentDescription = "Remove backup key",
+                                    tint = ColorCrimson,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Dynamic Model Dropdown + Fetch Models Button
+            ExposedDropdownMenuBox(
+                expanded = modelDropdownExpanded,
+                onExpandedChange = { modelDropdownExpanded = !modelDropdownExpanded }
+            ) {
                 OutlinedTextField(
-                    value = newBackupKeyInput,
-                    onValueChange = { newBackupKeyInput = it },
-                    placeholder = { Text("Add failover key...", fontSize = 12.sp) },
+                    value = config.selectedModel,
+                    onValueChange = {
+                        onSelectModel(it)
+                        modelSearchFilter = it
+                    },
+                    label = { Text("Model ID (Select or Type)") },
                     singleLine = true,
-                    modifier = Modifier.weight(1f)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                IconButton(
-                    onClick = {
-                        onAddBackupKey(newBackupKeyInput)
-                        newBackupKeyInput = ""
+                    trailingIcon = {
+                        ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded)
                     },
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(ElectricIndigo)
-                ) {
-                    Icon(Icons.Default.Add, contentDescription = "Add backup key", tint = Color.White)
-                }
-            }
-
-            state.aiSettings.backupApiKeys.forEach { backupKey ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
+                        .menuAnchor()
                         .fillMaxWidth()
-                        .padding(top = 6.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(ElevatedSlate)
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                ) {
-                    val masked = if (backupKey.length > 8) {
-                        "${backupKey.take(4)}••••${backupKey.takeLast(4)}"
-                    } else {
-                        "••••••••"
-                    }
-                    Text(masked, color = TextPrimary, fontSize = 12.sp)
-                    IconButton(onClick = { onRemoveBackupKey(backupKey) }, modifier = Modifier.size(28.dp)) {
-                        Icon(
-                            Icons.Default.Delete,
-                            contentDescription = "Remove backup key",
-                            tint = HeatmapCrimson,
-                            modifier = Modifier.size(16.dp)
-                        )
-                    }
-                }
-            }
+                )
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text("Model Selection", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Box(modifier = Modifier.fillMaxWidth()) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(ElevatedSlate)
-                        .border(1.dp, HairlineBorder, RoundedCornerShape(10.dp))
-                        .clickable { modelDropdownExpanded = true }
-                        .padding(horizontal = 12.dp, vertical = 14.dp)
-                ) {
-                    Text(
-                        text = state.aiSettings.selectedModel.ifBlank { "Select a model" },
-                        color = TextPrimary,
-                        fontSize = 13.sp,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextSecondary)
+                val filteredModels = config.availableModels.filter {
+                    modelSearchFilter.isBlank() || it.contains(modelSearchFilter, ignoreCase = true)
                 }
 
-                DropdownMenu(
-                    expanded = modelDropdownExpanded,
-                    onDismissRequest = { modelDropdownExpanded = false }
+                ExposedDropdownMenu(
+                    expanded = modelDropdownExpanded && filteredModels.isNotEmpty(),
+                    onDismissRequest = { modelDropdownExpanded = false },
+                    modifier = Modifier.heightIn(max = 220.dp)
                 ) {
-                    state.aiSettings.availableModels.forEach { modelId ->
+                    filteredModels.forEach { modelId ->
                         DropdownMenuItem(
                             text = { Text(modelId, fontSize = 13.sp) },
                             onClick = {
                                 onSelectModel(modelId)
+                                modelSearchFilter = ""
                                 modelDropdownExpanded = false
                             }
                         )
@@ -3878,171 +4207,224 @@ fun AiManagerSheet(
                 }
             }
 
-            if (!state.modelFetchMessage.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = state.modelFetchMessage,
-                    color = AiPickCyan,
-                    fontSize = 11.sp
-                )
-            }
-
-            Spacer(modifier = Modifier.height(10.dp))
-
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 OutlinedButton(
                     onClick = onFetchModels,
-                    enabled = !state.isFetchingModels,
+                    enabled = !isFetchingModels,
                     shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, ElectricIndigo),
                     modifier = Modifier.weight(1f)
                 ) {
-                    if (state.isFetchingModels) {
+                    if (isFetchingModels) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                     } else {
-                        Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Fetch Models", fontSize = 12.sp)
+                        Icon(
+                            imageVector = Icons.Rounded.Refresh,
+                            contentDescription = "Fetch models",
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Fetch Models", fontSize = 13.sp)
                 }
 
                 Button(
-                    onClick = onConnect,
-                    enabled = state.aiConnectionState !is AiConnectionState.Testing,
-                    shape = RoundedCornerShape(10.dp),
+                    onClick = onTestConnect,
+                    enabled = connectionState !is AiConnectionState.Testing,
                     colors = ButtonDefaults.buttonColors(containerColor = ElectricIndigo),
+                    shape = RoundedCornerShape(10.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    if (state.aiConnectionState is AiConnectionState.Testing) {
+                    if (connectionState is AiConnectionState.Testing) {
                         CircularProgressIndicator(
-                            color = Color.White,
+                            color = TextPrimary,
                             modifier = Modifier.size(16.dp),
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Icon(Icons.Default.CheckCircle, contentDescription = null, modifier = Modifier.size(16.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Connect", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                        Icon(
+                            imageVector = Icons.Rounded.Bolt,
+                            contentDescription = "Connect",
+                            modifier = Modifier.size(16.dp)
+                        )
                     }
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Connect", fontSize = 13.sp)
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-            when (val conn = state.aiConnectionState) {
+            if (modelFetchError != null) {
+                Text(
+                    text = modelFetchError,
+                    color = ColorCrimson,
+                    fontSize = 12.sp
+                )
+            }
+
+            when (connectionState) {
                 is AiConnectionState.Connected -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(SuccessGreen.copy(alpha = 0.15f))
-                            .border(1.dp, SuccessGreen.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                            .padding(10.dp)
+                    Surface(
+                        color = ColorEmerald.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, ColorEmerald.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = "✓ Connected (${conn.latencyMs} ms) • ${conn.model}",
-                            color = SuccessGreen,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.CheckCircle,
+                                contentDescription = "Connected",
+                                tint = ColorEmerald,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "\u2713 Connected (${connectionState.latencyMs} ms) • ${connectionState.model}",
+                                color = ColorEmerald,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     }
                 }
                 is AiConnectionState.Error -> {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(HeatmapCrimson.copy(alpha = 0.15f))
-                            .border(1.dp, HeatmapCrimson.copy(alpha = 0.5f), RoundedCornerShape(8.dp))
-                            .padding(10.dp)
+                    Surface(
+                        color = ColorCrimson.copy(alpha = 0.14f),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, ColorCrimson.copy(alpha = 0.45f)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text(
-                            text = conn.message,
-                            color = HeatmapCrimson,
-                            fontSize = 12.sp
-                        )
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.ErrorOutline,
+                                contentDescription = "Connection Error",
+                                tint = ColorCrimson,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = connectionState.message,
+                                color = ColorCrimson,
+                                fontSize = 12.sp
+                            )
+                        }
                     }
                 }
                 else -> Unit
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
             HorizontalDivider(color = HairlineBorder)
-            Spacer(modifier = Modifier.height(14.dp))
 
-            Text("Extractor Engine Maintenance", color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-            Spacer(modifier = Modifier.height(6.dp))
+            // Token Optimization & Offline Toggles
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "Smart Peak-Only Mode (~85% token savings)",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Slices only 2-minute caption windows around peaks & Super Chats.",
+                        color = TextMuted,
+                        fontSize = 11.sp
+                    )
+                }
+                Switch(
+                    checked = config.smartPeakOnly,
+                    onCheckedChange = onToggleSmartPeakOnly,
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricIndigo)
+                )
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = "100% Offline / No-AI Mode",
+                        color = TextPrimary,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = "Runs Heatmap, Super Chat, Chat Hype & Audio Peak scanners with zero API keys.",
+                        color = TextMuted,
+                        fontSize = 11.sp
+                    )
+                }
+                Switch(
+                    checked = config.offlineNoAiMode,
+                    onCheckedChange = onToggleOfflineMode,
+                    colors = SwitchDefaults.colors(checkedTrackColor = ElectricIndigo)
+                )
+            }
+
+            HorizontalDivider(color = HairlineBorder)
+
+            // 1-Tap yt-dlp Engine Updater
             OutlinedButton(
                 onClick = onUpdateYtDlp,
-                enabled = !state.isUpdatingYtDlp,
+                enabled = !isUpdatingYtDlp,
                 shape = RoundedCornerShape(10.dp),
-                border = BorderStroke(1.dp, AiPickCyan),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                if (state.isUpdatingYtDlp) {
+                if (isUpdatingYtDlp) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(8.dp))
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.Update,
+                        contentDescription = "Update yt-dlp engine",
+                        modifier = Modifier.size(16.dp)
+                    )
                 }
-                Text("Update yt-dlp Engine (No APK Rebuild Needed)", color = AiPickCyan, fontSize = 12.sp)
-            }
-            if (!state.ytDlpUpdateMessage.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(state.ytDlpUpdateMessage, color = TextSecondary, fontSize = 11.sp)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Update yt-dlp Extractor Engine (Zero APK Rebuild)", fontSize = 12.sp)
             }
 
-            Spacer(modifier = Modifier.height(28.dp))
+            if (ytDlpUpdateStatus != null) {
+                Text(
+                    text = ytDlpUpdateStatus,
+                    color = ElectricIndigoLight,
+                    fontSize = 12.sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
         }
     }
 }
+""",
+    )
 
-@Composable
-private fun SettingSwitchRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(ElevatedSlate)
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-            Text(subtitle, color = TextSecondary, fontSize = 11.sp, lineHeight = 14.sp)
-        }
-        Spacer(modifier = Modifier.width(8.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            colors = SwitchDefaults.colors(checkedTrackColor = ElectricIndigo)
-        )
-    }
-}
-'''
-
-FILES["app/src/main/java/com/clippulse/studio/ui/ClipPulseScreen.kt"] = r'''@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+    write_file(
+        f"{base}/ui/ClipPulseStudioScreen.kt",
+        """
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.clippulse.studio.ui
 
-import android.content.ClipboardManager
-import android.content.Context
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -4057,25 +4439,21 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AutoAwesome
-import androidx.compose.material.icons.filled.ContentCut
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.CropPortrait
-import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.VideoFile
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ContentCut
+import androidx.compose.material.icons.rounded.ContentPaste
+import androidx.compose.material.icons.rounded.CropPortrait
+import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.FileDownload
+import androidx.compose.material.icons.rounded.VideoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -4084,81 +4462,92 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.clippulse.studio.R
-import com.clippulse.studio.engine.TimeUtils
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.clippulse.studio.model.AiConnectionState
 import com.clippulse.studio.model.DetectionMode
-import com.clippulse.studio.model.ExportProgressState
+import com.clippulse.studio.model.ExportJobState
+import com.clippulse.studio.model.ExportMode
+import com.clippulse.studio.model.PaddingPreset
+import com.clippulse.studio.model.SignalSource
+import com.clippulse.studio.model.SuperChatThreshold
 import com.clippulse.studio.ui.components.AiManagerSheet
 import com.clippulse.studio.ui.components.ClipCard
-import com.clippulse.studio.ui.components.HeatmapTimeline
-import com.clippulse.studio.ui.theme.AiPickCyan
+import com.clippulse.studio.ui.components.ClipPulseLogo
+import com.clippulse.studio.ui.components.InteractiveHeatmapTimeline
+import com.clippulse.studio.ui.theme.ColorCrimson
+import com.clippulse.studio.ui.theme.ColorEmerald
+import com.clippulse.studio.ui.theme.ColorGold
 import com.clippulse.studio.ui.theme.ElectricIndigo
+import com.clippulse.studio.ui.theme.ElectricIndigoLight
 import com.clippulse.studio.ui.theme.ElevatedSlate
 import com.clippulse.studio.ui.theme.HairlineBorder
-import com.clippulse.studio.ui.theme.HeatmapCrimson
-import com.clippulse.studio.ui.theme.MatteSlateCard
+import com.clippulse.studio.ui.theme.MatteSlate
 import com.clippulse.studio.ui.theme.ObsidianBg
-import com.clippulse.studio.ui.theme.SuccessGreen
-import com.clippulse.studio.ui.theme.SuperChatGold
 import com.clippulse.studio.ui.theme.TextMuted
 import com.clippulse.studio.ui.theme.TextPrimary
 import com.clippulse.studio.ui.theme.TextSecondary
+import com.clippulse.studio.viewmodel.ClipPulseViewModel
 
 @Composable
-fun ClipPulseScreen(viewModel: ClipPulseViewModel) {
-    val state by viewModel.uiState.collectAsState()
-    val exportState by viewModel.exportProgress.collectAsState()
-    val context = LocalContext.current
+fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val exportState by viewModel.exportState.collectAsStateWithLifecycle()
+    val clipboardManager = LocalClipboardManager.current
 
     val localVideoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            viewModel.onLocalVideoSelected(uri)
+            viewModel.analyzeLocalVideoUri(uri)
         }
     }
 
-    val analysis = state.analysisResult
-    val visibleClips = analysis?.clips?.filter {
-        viewModel.matchesFilter(it, state.activeFilter)
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        viewModel.exportSelectedClips()
+    }
+
+    val analysisResult = state.analysisResult
+    val visibleClips = analysisResult?.clips?.filter { clip ->
+        state.activeSignalFilter == null || state.activeSignalFilter in clip.signals
     }.orEmpty()
-    val selectedCount = analysis?.clips?.count { it.selected } ?: 0
+    val selectedCount = analysisResult?.clips?.count { it.selected } ?: 0
 
     Scaffold(
         containerColor = ObsidianBg,
         topBar = {
             StudioTopBar(
-                state = state,
-                onOpenAiManager = { viewModel.toggleAiManagerSheet(true) }
+                aiConfig = state.aiConfig,
+                connectionState = state.aiConnectionState,
+                onOpenAiManager = { viewModel.setAiSheetOpen(true) }
             )
         },
         bottomBar = {
-            if (analysis != null && analysis.clips.isNotEmpty()) {
+            if (analysisResult != null) {
                 StickyExportDock(
                     selectedCount = selectedCount,
-                    useVerticalCrop = state.exportConfig.useVerticalCrop,
-                    includeTxtSidecar = state.exportConfig.includeTxtSidecar,
+                    exportMode = state.exportMode,
+                    includeTxtNotes = state.includeTxtNotes,
                     exportState = exportState,
-                    onToggleVerticalCrop = { vertical ->
-                        viewModel.updateExportConfig { it.copy(useVerticalCrop = vertical) }
-                    },
-                    onToggleTxtSidecar = {
-                        viewModel.updateExportConfig { it.copy(includeTxtSidecar = !it.includeTxtSidecar) }
-                    },
-                    onExportClicked = { viewModel.exportSelectedClips() }
+                    onSelectExportMode = viewModel::setExportMode,
+                    onToggleTxtNotes = viewModel::toggleIncludeTxtNotes,
+                    onDismissExportState = viewModel::dismissExportStatus,
+                    onExportClick = {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        } else {
+                            viewModel.exportSelectedClips()
+                        }
+                    }
                 )
             }
         }
@@ -4166,102 +4555,314 @@ fun ClipPulseScreen(viewModel: ClipPulseViewModel) {
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(horizontal = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp)
+                .padding(innerPadding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // Source Input & Detection Controls Card
             item {
-                SourceInputCard(
-                    state = state,
-                    onUrlChanged = viewModel::onUrlChanged,
-                    onPasteClick = {
-                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
-                        val clipText = clipboard?.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
-                        if (clipText.isNotBlank()) {
-                            viewModel.onUrlChanged(TimeUtils.extractUrlFromSharedText(clipText))
-                        }
-                    },
-                    onPickLocalClick = { localVideoPicker.launch("video/*") },
-                    onModeSelected = viewModel::onDetectionModeSelected,
-                    onCustomQueryChanged = viewModel::onCustomAiQueryChanged,
-                    onMinSuperChatChanged = viewModel::onMinSuperChatChanged,
-                    onPaddingChanged = { startPad, endPad ->
-                        viewModel.updateExportConfig {
-                            it.copy(startPaddingSec = startPad, endPaddingSec = endPad)
-                        }
-                    },
-                    onAnalyzeClick = viewModel::startAnalysis
-                )
-            }
-
-            if (analysis != null) {
-                item {
-                    Surface(
-                        shape = RoundedCornerShape(16.dp),
-                        color = MatteSlateCard,
-                        border = BorderStroke(1.dp, HairlineBorder),
-                        modifier = Modifier.fillMaxWidth()
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MatteSlate,
+                    shape = RoundedCornerShape(18.dp),
+                    border = BorderStroke(1.dp, HairlineBorder)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Text(
-                                text = analysis.title,
-                                color = TextPrimary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
+                        Text(
+                            text = "ZERO-DOWNLOAD STREAM & VIDEO SOURCE",
+                            color = TextSecondary,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 0.8.sp
+                        )
+
+                        OutlinedTextField(
+                            value = state.sourceInput,
+                            onValueChange = viewModel::updateSourceInput,
+                            placeholder = {
+                                Text(
+                                    "YouTube URL, Live VOD, or Facebook Video...",
+                                    fontSize = 13.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedButton(
+                                onClick = {
+                                    val pasted = clipboardManager.getText()?.text?.trim().orEmpty()
+                                    if (pasted.isNotEmpty()) {
+                                        viewModel.updateSourceInput(pasted)
+                                    }
+                                },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, HairlineBorder),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.ContentPaste,
+                                    contentDescription = "Paste link",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Paste Link", fontSize = 12.sp)
+                            }
+
+                            OutlinedButton(
+                                onClick = { localVideoPicker.launch("video/*") },
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(1.dp, HairlineBorder),
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.VideoLibrary,
+                                    contentDescription = "Pick local video",
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Local Video", fontSize = 12.sp)
+                            }
+                        }
+
+                        // Horizontal Detection Mode Pills
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            DetectionMode.entries.forEach { mode ->
+                                FilterChip(
+                                    selected = state.detectionMode == mode,
+                                    onClick = { viewModel.setDetectionMode(mode) },
+                                    label = { Text(mode.label, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = ElectricIndigo,
+                                        selectedLabelColor = TextPrimary,
+                                        containerColor = ElevatedSlate,
+                                        labelColor = TextSecondary
+                                    )
+                                )
+                            }
+                        }
+
+                        // Optional Custom AI Prompt Box
+                        if (state.detectionMode == DetectionMode.AI_CUSTOM || state.detectionMode == DetectionMode.SMART_ALL) {
+                            OutlinedTextField(
+                                value = state.customAiPrompt,
+                                onValueChange = viewModel::setCustomAiPrompt,
+                                placeholder = {
+                                    Text(
+                                        "Optional AI prompt (e.g., \"every rage moment or clutch play\")",
+                                        fontSize = 12.sp
+                                    )
+                                },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
                             )
+                        }
+
+                        // Super Chat Minimum Threshold Chips
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                text = "${analysis.channelName}  •  ${TimeUtils.formatTimestamp(analysis.durationSec)}  •  ${analysis.superChatCount} Super Chats",
-                                color = TextSecondary,
+                                text = "Super Chat:",
+                                color = TextMuted,
                                 fontSize = 11.sp
                             )
+                            SuperChatThreshold.entries.forEach { threshold ->
+                                FilterChip(
+                                    selected = state.superChatThreshold == threshold,
+                                    onClick = { viewModel.setSuperChatThreshold(threshold) },
+                                    label = { Text(threshold.label, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = ColorGold.copy(alpha = 0.25f),
+                                        selectedLabelColor = ColorGold,
+                                        containerColor = ElevatedSlate,
+                                        labelColor = TextSecondary
+                                    )
+                                )
+                            }
+                        }
 
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            HeatmapTimeline(
-                                durationSec = analysis.durationSec,
-                                heatmap = analysis.heatmap,
-                                clips = analysis.clips,
-                                focusedClipId = state.focusedClipId,
-                                onSelectClipFromTimeline = { clipId ->
-                                    viewModel.onFocusClip(clipId)
-                                }
+                        // Start / End Padding Chips
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Padding:",
+                                color = TextMuted,
+                                fontSize = 11.sp
                             )
+                            PaddingPreset.entries.forEach { preset ->
+                                FilterChip(
+                                    selected = state.paddingPreset == preset,
+                                    onClick = { viewModel.setPaddingPreset(preset) },
+                                    label = { Text(preset.label, fontSize = 11.sp) },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = ElectricIndigo.copy(alpha = 0.28f),
+                                        selectedLabelColor = ElectricIndigoLight,
+                                        containerColor = ElevatedSlate,
+                                        labelColor = TextSecondary
+                                    )
+                                )
+                            }
+                        }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = viewModel::analyzeRemoteUrl,
+                            enabled = !state.isAnalyzing,
+                            colors = ButtonDefaults.buttonColors(containerColor = ElectricIndigo),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                        ) {
+                            if (state.isAnalyzing) {
+                                CircularProgressIndicator(
+                                    color = TextPrimary,
+                                    modifier = Modifier.size(18.dp),
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Scanning Stream Signals...", fontWeight = FontWeight.SemiBold)
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Rounded.AutoAwesome,
+                                    contentDescription = "Analyze",
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Analyze Video (Zero-Download)", fontWeight = FontWeight.SemiBold)
+                            }
+                        }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .horizontalScroll(rememberScrollState())
-                            ) {
-                                SignalFilter.entries.forEach { filter ->
+                        if (state.isAnalyzing) {
+                            LinearProgressIndicator(
+                                progress = { state.analysisProgress },
+                                color = ElectricIndigo,
+                                trackColor = ElevatedSlate,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            Text(
+                                text = state.analysisStatus,
+                                color = ElectricIndigoLight,
+                                fontSize = 12.sp
+                            )
+                        }
+
+                        if (state.analysisError != null) {
+                            Text(
+                                text = state.analysisError.orEmpty(),
+                                color = ColorCrimson,
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Analysis Results: Video Header, Interactive Heatmap Timeline & Filter Controls
+            if (analysisResult != null) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MatteSlate,
+                            shape = RoundedCornerShape(14.dp),
+                            border = BorderStroke(1.dp, HairlineBorder)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp)) {
+                                Text(
+                                    text = analysisResult.videoTitle,
+                                    color = TextPrimary,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "${analysisResult.channelName}  •  ${analysisResult.analysisSummary}",
+                                    color = TextSecondary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        InteractiveHeatmapTimeline(
+                            durationSec = analysisResult.durationSec,
+                            heatmap = analysisResult.heatmap,
+                            clips = analysisResult.clips,
+                            focusedClipId = state.focusedClipId,
+                            onJumpToTime = viewModel::focusClipAtTime
+                        )
+
+                        // Signal Filter Chips + Select All / Clear
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            FilterChip(
+                                selected = state.activeSignalFilter == null,
+                                onClick = { viewModel.setSignalFilter(null) },
+                                label = { Text("All (${analysisResult.clips.size})", fontSize = 11.sp) }
+                            )
+                            SignalSource.entries.forEach { signal ->
+                                val count = analysisResult.clips.count { signal in it.signals }
+                                if (count > 0) {
                                     FilterChip(
-                                        selected = state.activeFilter == filter,
-                                        onClick = { viewModel.onSignalFilterSelected(filter) },
-                                        label = { Text(filter.label, fontSize = 11.sp) },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = ElectricIndigo,
-                                            selectedLabelColor = Color.White,
-                                            containerColor = ElevatedSlate,
-                                            labelColor = TextSecondary
-                                        ),
-                                        modifier = Modifier.padding(end = 6.dp)
+                                        selected = state.activeSignalFilter == signal,
+                                        onClick = {
+                                            viewModel.setSignalFilter(
+                                                if (state.activeSignalFilter == signal) null else signal
+                                            )
+                                        },
+                                        label = { Text("${signal.label} ($count)", fontSize = 11.sp) }
                                     )
                                 }
                             }
+                        }
 
-                            Row(
-                                horizontalArrangement = Arrangement.End,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                TextButton(onClick = { viewModel.selectAllVisibleClips(true) }) {
-                                    Text("Select All", color = AiPickCyan, fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "DETECTED CLIPS ($selectedCount/${analysisResult.clips.size} selected)",
+                                color = TextSecondary,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                letterSpacing = 0.7.sp
+                            )
+                            Row {
+                                TextButton(onClick = { viewModel.selectAllClips(true) }) {
+                                    Text("Select All", color = ElectricIndigoLight, fontSize = 12.sp)
                                 }
-                                TextButton(onClick = { viewModel.selectAllVisibleClips(false) }) {
+                                TextButton(onClick = { viewModel.selectAllClips(false) }) {
                                     Text("Clear", color = TextSecondary, fontSize = 12.sp)
                                 }
                             }
@@ -4269,338 +4870,107 @@ fun ClipPulseScreen(viewModel: ClipPulseViewModel) {
                     }
                 }
 
-                if (visibleClips.isEmpty()) {
-                    item {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .background(MatteSlateCard)
-                                .border(1.dp, HairlineBorder, RoundedCornerShape(14.dp))
-                                .padding(24.dp)
-                        ) {
-                            Text(
-                                text = "No clips match the active filter. Switch to 'All' or try another detection mode.",
-                                color = TextSecondary,
-                                fontSize = 13.sp
-                            )
-                        }
-                    }
-                } else {
-                    items(visibleClips, key = { it.id }) { clip ->
-                        ClipCard(
-                            clip = clip,
-                            isFocused = clip.id == state.focusedClipId,
-                            onToggleSelected = { viewModel.toggleClipSelection(clip.id) },
-                            onNudgeStart = { delta -> viewModel.nudgeClipStart(clip.id, delta) },
-                            onNudgeEnd = { delta -> viewModel.nudgeClipEnd(clip.id, delta) }
-                        )
-                    }
+                items(
+                    items = visibleClips,
+                    key = { it.id }
+                ) { clip ->
+                    ClipCard(
+                        clip = clip,
+                        isExpanded = state.expandedClipId == clip.id,
+                        isFocused = state.focusedClipId == clip.id,
+                        localVideoPath = analysisResult.localFilePath,
+                        onToggleSelect = { viewModel.toggleClipSelected(clip.id) },
+                        onToggleExpand = { viewModel.toggleClipExpanded(clip.id) },
+                        onNudgeStart = { delta -> viewModel.nudgeClipStart(clip.id, delta) },
+                        onNudgeEnd = { delta -> viewModel.nudgeClipEnd(clip.id, delta) }
+                    )
                 }
             }
         }
     }
 
-    if (state.showAiManagerSheet) {
+    if (state.isAiSheetOpen) {
         AiManagerSheet(
-            state = state,
-            onDismiss = { viewModel.toggleAiManagerSheet(false) },
+            config = state.aiConfig,
+            connectionState = state.aiConnectionState,
+            isFetchingModels = state.isFetchingModels,
+            modelFetchError = state.modelFetchError,
+            isUpdatingYtDlp = state.isUpdatingYtDlp,
+            ytDlpUpdateStatus = state.ytDlpUpdateStatus,
+            onDismiss = { viewModel.setAiSheetOpen(false) },
             onSelectPreset = viewModel::selectAiPreset,
-            onBaseUrlChanged = { url -> viewModel.updateAiSettings { it.copy(baseUrl = url) } },
-            onPrimaryKeyChanged = { key -> viewModel.updateAiSettings { it.copy(primaryApiKey = key) } },
-            onAddBackupKey = viewModel::addBackupKey,
-            onRemoveBackupKey = viewModel::removeBackupKey,
-            onSelectModel = { model -> viewModel.updateAiSettings { it.copy(selectedModel = model) } },
-            onFetchModels = viewModel::fetchModels,
-            onConnect = viewModel::connectAiModel,
-            onToggleSmartPeak = { enabled -> viewModel.updateAiSettings { it.copy(smartPeakOnly = enabled) } },
-            onToggleOfflineMode = { offline -> viewModel.updateAiSettings { it.copy(offlineMode = offline) } },
-            onUpdateYtDlp = viewModel::updateYtDlpEngine
+            onUpdateBaseUrl = viewModel::updateAiBaseUrl,
+            onUpdatePrimaryKey = viewModel::updatePrimaryApiKey,
+            onAddBackupKey = viewModel::addBackupApiKey,
+            onRemoveBackupKey = viewModel::removeBackupApiKey,
+            onSelectModel = viewModel::selectAiModel,
+            onFetchModels = viewModel::fetchAvailableModels,
+            onTestConnect = viewModel::testAiConnection,
+            onToggleSmartPeakOnly = viewModel::setSmartPeakOnly,
+            onToggleOfflineMode = viewModel::setOfflineNoAiMode,
+            onUpdateYtDlp = viewModel::updateYtDlpBinary
         )
     }
 }
 
 @Composable
 private fun StudioTopBar(
-    state: StudioUiState,
+    aiConfig: com.clippulse.studio.model.AiConfig,
+    connectionState: AiConnectionState,
     onOpenAiManager: () -> Unit
 ) {
-    val connState = state.aiConnectionState
-    val (pillText, pillColor) = when {
-        state.aiSettings.offlineMode -> "Offline Mode" to TextSecondary
-        connState is AiConnectionState.Connected ->
-            "✓ Connected (${connState.latencyMs}ms)" to SuccessGreen
-        connState is AiConnectionState.Error ->
-            "AI Error" to HeatmapCrimson
-        state.aiSettings.primaryApiKey.isNotBlank() ->
-            state.aiSettings.selectedModel.take(16) to AiPickCyan
-        else -> "AI Setup" to SuperChatGold
-    }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.SpaceBetween,
+    Surface(
+        color = ObsidianBg,
         modifier = Modifier
             .fillMaxWidth()
-            .background(ObsidianBg)
             .statusBarsPadding()
-            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                painter = painterResource(id = R.drawable.ic_launcher),
-                contentDescription = "ClipPulse Logo",
-                tint = Color.Unspecified,
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(RoundedCornerShape(8.dp))
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column {
-                Text(
-                    text = "ClipPulse",
-                    color = TextPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Zero-Download Clip Studio",
-                    color = TextMuted,
-                    fontSize = 10.sp
-                )
-            }
-        }
-
         Row(
-            verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
-                .clip(CircleShape)
-                .background(MatteSlateCard)
-                .border(1.dp, pillColor.copy(alpha = 0.55f), CircleShape)
-                .clickable { onOpenAiManager() }
-                .padding(horizontal = 12.dp, vertical = 7.dp)
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(7.dp)
-                    .clip(CircleShape)
-                    .background(pillColor)
-            )
-            Spacer(modifier = Modifier.width(6.dp))
-            Text(
-                text = pillText,
-                color = pillColor,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(modifier = Modifier.width(4.dp))
-            Icon(
-                imageVector = Icons.Default.Settings,
-                contentDescription = "Open AI Settings",
-                tint = TextSecondary,
-                modifier = Modifier.size(14.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SourceInputCard(
-    state: StudioUiState,
-    onUrlChanged: (String) -> Unit,
-    onPasteClick: () -> Unit,
-    onPickLocalClick: () -> Unit,
-    onModeSelected: (DetectionMode) -> Unit,
-    onCustomQueryChanged: (String) -> Unit,
-    onMinSuperChatChanged: (Double) -> Unit,
-    onPaddingChanged: (Int, Int) -> Unit,
-    onAnalyzeClick: () -> Unit
-) {
-    Surface(
-        shape = RoundedCornerShape(16.dp),
-        color = MatteSlateCard,
-        border = BorderStroke(1.dp, HairlineBorder),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Column(modifier = Modifier.padding(14.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = if (state.selectedLocalUri != null) state.selectedLocalName else state.urlInput,
-                    onValueChange = onUrlChanged,
-                    placeholder = {
-                        Text(
-                            "Paste YouTube, VOD, or Facebook URL...",
-                            fontSize = 12.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    singleLine = true,
-                    trailingIcon = {
-                        IconButton(onClick = onPasteClick) {
-                            Icon(
-                                imageVector = Icons.Default.ContentPaste,
-                                contentDescription = "Paste URL",
-                                tint = AiPickCyan
-                            )
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                OutlinedButton(
-                    onClick = onPickLocalClick,
-                    shape = RoundedCornerShape(10.dp),
-                    border = BorderStroke(1.dp, HairlineBorder),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 14.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VideoFile,
-                        contentDescription = "Pick local video",
-                        tint = ElectricIndigo,
-                        modifier = Modifier.size(20.dp)
+                ClipPulseLogo()
+                Spacer(modifier = Modifier.width(10.dp))
+                Column {
+                    Text(
+                        text = "ClipPulse",
+                        color = TextPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "Zero-Download Clip Studio",
+                        color = TextMuted,
+                        fontSize = 11.sp
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
+            // Top-right live AI status pill
+            val (pillText, pillColor) = when {
+                aiConfig.offlineNoAiMode -> "Offline Mode" to TextSecondary
+                connectionState is AiConnectionState.Connected -> "\u2713 ${connectionState.latencyMs}ms" to ColorEmerald
+                connectionState is AiConnectionState.Error -> "AI Error" to ColorCrimson
+                aiConfig.primaryKey.isNotBlank() -> aiConfig.preset.displayName to ElectricIndigoLight
+                else -> "Setup AI" to ColorGold
+            }
 
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            Surface(
+                onClick = onOpenAiManager,
+                color = pillColor.copy(alpha = 0.14f),
+                shape = RoundedCornerShape(20.dp),
+                border = BorderStroke(1.dp, pillColor.copy(alpha = 0.45f))
             ) {
-                DetectionMode.entries.forEach { mode ->
-                    FilterChip(
-                        selected = state.detectionMode == mode,
-                        onClick = { onModeSelected(mode) },
-                        label = { Text(mode.label, fontSize = 11.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = ElectricIndigo,
-                            selectedLabelColor = Color.White,
-                            containerColor = ElevatedSlate,
-                            labelColor = TextSecondary
-                        )
-                    )
-                }
-            }
-
-            if (!state.aiSettings.offlineMode &&
-                (state.detectionMode == DetectionMode.AI_VIRAL || state.detectionMode == DetectionMode.ALL)
-            ) {
-                Spacer(modifier = Modifier.height(8.dp))
-                OutlinedTextField(
-                    value = state.customAiQuery,
-                    onValueChange = onCustomQueryChanged,
-                    placeholder = {
-                        Text(
-                            "Optional AI prompt (e.g., \"every rage moment\")",
-                            fontSize = 12.sp
-                        )
-                    },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-            ) {
-                val minOptions = listOf(0.0 to "All Donations", 5.0 to "$5+ SC", 10.0 to "$10+ SC", 25.0 to "$25+ SC")
-                minOptions.forEach { (amount, label) ->
-                    FilterChip(
-                        selected = state.minSuperChatUsd == amount,
-                        onClick = { onMinSuperChatChanged(amount) },
-                        label = { Text(label, fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = SuperChatGold.copy(alpha = 0.25f),
-                            selectedLabelColor = SuperChatGold,
-                            containerColor = ElevatedSlate,
-                            labelColor = TextSecondary
-                        )
-                    )
-                }
-
-                val padPresets = listOf(
-                    Triple(3, 5, "Pad -3s/+5s"),
-                    Triple(5, 8, "Pad -5s/+8s"),
-                    Triple(0, 0, "Exact 0s")
-                )
-                padPresets.forEach { (sPad, ePad, label) ->
-                    val active = state.exportConfig.startPaddingSec == sPad &&
-                        state.exportConfig.endPaddingSec == ePad
-                    FilterChip(
-                        selected = active,
-                        onClick = { onPaddingChanged(sPad, ePad) },
-                        label = { Text(label, fontSize = 10.sp) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AiPickCyan.copy(alpha = 0.25f),
-                            selectedLabelColor = AiPickCyan,
-                            containerColor = ElevatedSlate,
-                            labelColor = TextSecondary
-                        )
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Button(
-                onClick = onAnalyzeClick,
-                enabled = !state.isAnalyzing,
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = ElectricIndigo),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-            ) {
-                if (state.isAnalyzing) {
-                    CircularProgressIndicator(
-                        color = Color.White,
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text("Analyzing...", color = Color.White, fontWeight = FontWeight.SemiBold)
-                } else {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, tint = Color.White)
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Analyze & Detect Clips", color = Color.White, fontWeight = FontWeight.Bold)
-                }
-            }
-
-            if (state.isAnalyzing && state.analysisStepText.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    color = AiPickCyan,
-                    trackColor = ElevatedSlate,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = state.analysisStepText,
-                    color = AiPickCyan,
-                    fontSize = 11.sp
-                )
-            }
-
-            if (!state.analysisError.isNullOrBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = state.analysisError,
-                    color = HeatmapCrimson,
-                    fontSize = 12.sp
+                    text = pillText,
+                    color = pillColor,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                 )
             }
         }
@@ -4610,148 +4980,159 @@ private fun SourceInputCard(
 @Composable
 private fun StickyExportDock(
     selectedCount: Int,
-    useVerticalCrop: Boolean,
-    includeTxtSidecar: Boolean,
-    exportState: ExportProgressState,
-    onToggleVerticalCrop: (Boolean) -> Unit,
-    onToggleTxtSidecar: () -> Unit,
-    onExportClicked: () -> Unit
+    exportMode: ExportMode,
+    includeTxtNotes: Boolean,
+    exportState: ExportJobState,
+    onSelectExportMode: (ExportMode) -> Unit,
+    onToggleTxtNotes: () -> Unit,
+    onDismissExportState: () -> Unit,
+    onExportClick: () -> Unit
 ) {
     Surface(
-        color = MatteSlateCard,
+        color = MatteSlate,
         border = BorderStroke(1.dp, HairlineBorder),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(horizontal = 14.dp, vertical = 10.dp)
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            if (exportState.isExporting || exportState.statusMessage.isNotBlank()) {
-                if (exportState.isExporting) {
+            when (exportState) {
+                is ExportJobState.Running -> {
                     LinearProgressIndicator(
-                        progress = { exportState.fraction.coerceIn(0f, 1f) },
-                        color = SuccessGreen,
+                        progress = { exportState.progressFraction },
+                        color = ElectricIndigo,
                         trackColor = ElevatedSlate,
                         modifier = Modifier.fillMaxWidth()
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Exporting ${exportState.currentIndex}/${exportState.total}: ${exportState.currentTitle}",
+                        color = ElectricIndigoLight,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Text(
-                    text = exportState.statusMessage,
-                    color = if (exportState.errorMessage != null) HeatmapCrimson else SuccessGreen,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Spacer(modifier = Modifier.height(6.dp))
+                is ExportJobState.Completed -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Saved ${exportState.exportedCount} clip(s) to Movies/ClipPulse",
+                            color = ColorEmerald,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        TextButton(onClick = onDismissExportState) {
+                            Text("OK", color = ColorEmerald, fontSize = 12.sp)
+                        }
+                    }
+                }
+                is ExportJobState.Failed -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = exportState.error,
+                            color = ColorCrimson,
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = onDismissExportState) {
+                            Text("Dismiss", color = ColorCrimson, fontSize = 12.sp)
+                        }
+                    }
+                }
+                ExportJobState.Idle -> Unit
             }
 
             Row(
+                modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 FilterChip(
-                    selected = !useVerticalCrop,
-                    onClick = { onToggleVerticalCrop(false) },
+                    selected = exportMode == ExportMode.FAST_COPY,
+                    onClick = { onSelectExportMode(ExportMode.FAST_COPY) },
                     leadingIcon = {
-                        Icon(Icons.Default.ContentCut, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.ContentCut,
+                            contentDescription = "Fast Cut",
+                            modifier = Modifier.size(14.dp)
+                        )
                     },
-                    label = { Text("Fast Cut", fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ElectricIndigo.copy(alpha = 0.3f),
-                        selectedLabelColor = Color.White,
-                        containerColor = ElevatedSlate,
-                        labelColor = TextSecondary
-                    )
+                    label = { Text("Fast Cut", fontSize = 11.sp) }
                 )
 
                 FilterChip(
-                    selected = useVerticalCrop,
-                    onClick = { onToggleVerticalCrop(true) },
+                    selected = exportMode == ExportMode.VERTICAL_CROP,
+                    onClick = { onSelectExportMode(ExportMode.VERTICAL_CROP) },
                     leadingIcon = {
-                        Icon(Icons.Default.CropPortrait, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.CropPortrait,
+                            contentDescription = "9:16 Crop",
+                            modifier = Modifier.size(14.dp)
+                        )
                     },
-                    label = { Text("9:16 Crop", fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = ElectricIndigo.copy(alpha = 0.3f),
-                        selectedLabelColor = Color.White,
-                        containerColor = ElevatedSlate,
-                        labelColor = TextSecondary
-                    )
+                    label = { Text("9:16 Crop", fontSize = 11.sp) }
                 )
 
                 FilterChip(
-                    selected = includeTxtSidecar,
-                    onClick = onToggleTxtSidecar,
+                    selected = includeTxtNotes,
+                    onClick = onToggleTxtNotes,
                     leadingIcon = {
-                        Icon(Icons.Default.Description, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.Description,
+                            contentDescription = "Include TXT sidecar notes",
+                            modifier = Modifier.size(14.dp)
+                        )
                     },
-                    label = { Text("+.TXT", fontSize = 11.sp) },
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = AiPickCyan.copy(alpha = 0.25f),
-                        selectedLabelColor = AiPickCyan,
-                        containerColor = ElevatedSlate,
-                        labelColor = TextSecondary
-                    )
+                    label = { Text("+.TXT", fontSize = 11.sp) }
                 )
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
-
             Button(
-                onClick = onExportClicked,
-                enabled = selectedCount > 0 && !exportState.isExporting,
-                shape = RoundedCornerShape(12.dp),
+                onClick = onExportClick,
+                enabled = selectedCount > 0 && exportState !is ExportJobState.Running,
                 colors = ButtonDefaults.buttonColors(containerColor = ElectricIndigo),
+                shape = RoundedCornerShape(12.dp),
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(46.dp)
             ) {
-                Icon(Icons.Default.Download, contentDescription = null, tint = Color.White)
+                Icon(
+                    imageVector = Icons.Rounded.FileDownload,
+                    contentDescription = "Export Selected Clips",
+                    modifier = Modifier.size(18.dp)
+                )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (exportState.isExporting) {
-                        "Exporting (${exportState.currentIndex}/${exportState.totalCount})..."
-                    } else {
-                        "Export Selected Clips to Gallery ($selectedCount)"
-                    },
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
+                    text = "Export Selected Clips to Gallery ($selectedCount)",
+                    fontWeight = FontWeight.SemiBold,
                     fontSize = 13.sp
                 )
             }
         }
     }
 }
-'''
+""",
+    )
 
-# ==============================================================================
-# 9. WRITE ALL PROJECT FILES SAFELY & LINK ANDROID SDK
-# ==============================================================================
 
-def main():
-    created_count = 0
-    for rel_path, content in FILES.items():
-        parent = os.path.dirname(rel_path)
-        if parent:
-            os.makedirs(parent, exist_ok=True)
-        with open(rel_path, "w", encoding="utf-8", newline="\n") as f:
-            f.write(content.lstrip("\n"))
-        created_count += 1
-        print(f"[OK] Generated {rel_path}")
-
-    sdk_dir = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
-    if sdk_dir and os.path.isdir(sdk_dir):
-        escaped_sdk = sdk_dir.replace("\\", "\\\\")
-        with open("local.properties", "w", encoding="utf-8", newline="\n") as f:
-            f.write(f"sdk.dir={escaped_sdk}\n")
-        print(f"[OK] Linked Android SDK in local.properties -> {sdk_dir}")
-
-    print(f"\nSuccessfully generated {created_count} ClipPulse Android project files.")
+def main() -> None:
+    generate_local_properties()
+    generate_gradle_files()
+    generate_manifest_and_resources()
+    generate_kotlin_sources()
+    print("\nClipPulse Android project generated successfully!")
 
 
 if __name__ == "__main__":
     main()
+    sys.exit(0)
