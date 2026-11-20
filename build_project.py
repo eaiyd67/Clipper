@@ -30,17 +30,17 @@ def generate_local_properties() -> None:
 def generate_gradle_files() -> None:
     write_file(
         "gradle.properties",
-        """
+        r'''
 org.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8
 android.useAndroidX=true
 kotlin.code.style=official
 android.nonTransitiveRClass=true
-""",
+''',
     )
 
     write_file(
         "settings.gradle.kts",
-        """
+        r'''
 pluginManagement {
     repositories {
         google()
@@ -61,31 +61,31 @@ dependencyResolutionManagement {
 
 rootProject.name = "ClipPulse"
 include(":app")
-""",
+''',
     )
 
     write_file(
         "build.gradle.kts",
-        """
+        r'''
 plugins {
     id("com.android.application") version "8.7.2" apply false
     id("org.jetbrains.kotlin.android") version "2.0.21" apply false
     id("org.jetbrains.kotlin.plugin.compose") version "2.0.21" apply false
 }
-""",
+''',
     )
 
     write_file(
         "app/proguard-rules.pro",
-        """
+        r'''
 -keep class com.yausername.** { *; }
 -dontwarn com.yausername.**
-""",
+''',
     )
 
     write_file(
         "app/build.gradle.kts",
-        """
+        r'''
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -175,14 +175,14 @@ dependencies {
     implementation("io.github.junkfood02.youtubedl-android:ffmpeg:0.18.1")
     implementation("io.github.junkfood02.youtubedl-android:common:0.18.1")
 }
-""",
+''',
     )
 
 
 def generate_manifest_and_resources() -> None:
     write_file(
         "app/src/main/AndroidManifest.xml",
-        """
+        r'''
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
@@ -211,7 +211,8 @@ def generate_manifest_and_resources() -> None:
         android:roundIcon="@drawable/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/Theme.ClipPulse"
-        android:usesCleartextTraffic="true">
+        android:usesCleartextTraffic="true"
+        tools:replace="android:extractNativeLibs">
 
         <activity
             android:name=".MainActivity"
@@ -237,12 +238,12 @@ def generate_manifest_and_resources() -> None:
     </application>
 
 </manifest>
-""",
+''',
     )
 
     write_file(
         "app/src/main/res/drawable/ic_launcher.xml",
-        """
+        r'''
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
@@ -279,22 +280,22 @@ def generate_manifest_and_resources() -> None:
         android:fillColor="#06B6D4"
         android:pathData="M84,84h-12v-4h8v-8h4z" />
 </vector>
-""",
+''',
     )
 
     write_file(
         "app/src/main/res/values/strings.xml",
-        """
+        r'''
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">ClipPulse</string>
 </resources>
-""",
+''',
     )
 
     write_file(
         "app/src/main/res/values/themes.xml",
-        """
+        r'''
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.ClipPulse" parent="android:Theme.Material.NoActionBar">
@@ -303,7 +304,7 @@ def generate_manifest_and_resources() -> None:
         <item name="android:windowBackground">#0B0B0F</item>
     </style>
 </resources>
-""",
+''',
     )
 
 
@@ -312,7 +313,7 @@ def generate_kotlin_sources() -> None:
 
     write_file(
         f"{base}/ClipPulseApp.kt",
-        """
+        r'''
 package com.clippulse.studio
 
 import android.app.Application
@@ -351,12 +352,12 @@ class ClipPulseApp : Application() {
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/MainActivity.kt",
-        """
+        r'''
 package com.clippulse.studio
 
 import android.content.Intent
@@ -397,7 +398,7 @@ class MainActivity : ComponentActivity() {
     private fun handleIncomingIntent(incoming: Intent?) {
         if (incoming?.action == Intent.ACTION_SEND && incoming.type == "text/plain") {
             val sharedText = incoming.getStringExtra(Intent.EXTRA_TEXT).orEmpty()
-            val urlRegex = Regex("""https?://\\S+""")
+            val urlRegex = Regex("""https?://\S+""")
             val extractedUrl = urlRegex.find(sharedText)?.value?.trimEnd('.', ',', ')', ']') ?: sharedText.trim()
             if (extractedUrl.isNotBlank()) {
                 viewModel.onSharedUrlReceived(extractedUrl)
@@ -405,12 +406,12 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/model/ClipModels.kt",
-        """
+        r'''
 package com.clippulse.studio.model
 
 import androidx.compose.ui.graphics.Color
@@ -600,12 +601,12 @@ object TimeFormatter {
         return String.format(Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/data/AiConfigStore.kt",
-        """
+        r'''
 package com.clippulse.studio.data
 
 import android.content.Context
@@ -697,12 +698,12 @@ class AiConfigStore(context: Context) {
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/network/UniversalAiClient.kt",
-        """
+        r'''
 package com.clippulse.studio.network
 
 import android.os.SystemClock
@@ -922,7 +923,6 @@ class UniversalAiClient {
         smartPeakOnly: Boolean
     ): String {
         val selectedCues = if (smartPeakOnly && peakCentersSec.isNotEmpty()) {
-            // Slice 2-minute (±60s) windows around detected peaks/Super Chats (~85% token savings)
             cues.filter { cue ->
                 peakCentersSec.any { center ->
                     cue.endSec >= (center - 60.0) && cue.startSec <= (center + 60.0)
@@ -1024,7 +1024,6 @@ class UniversalAiClient {
     }
 
     private fun extractJsonObject(raw: String): String? {
-        // Strip <think>...</think> reasoning blocks and markdown code fences
         val withoutThink = raw.replace(Regex("""<think>[\s\S]*?</think>""", RegexOption.IGNORE_CASE), "")
             .replace("```json", "", ignoreCase = true)
             .replace("```", "")
@@ -1077,12 +1076,12 @@ class UniversalAiClient {
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/engine/EngineInitializer.kt",
-        """
+        r'''
 package com.clippulse.studio.engine
 
 import android.content.Context
@@ -1120,12 +1119,90 @@ object EngineInitializer {
         }
     }
 }
-""",
+''',
+    )
+
+    write_file(
+        f"{base}/engine/FfmpegRunner.kt",
+        r'''
+package com.clippulse.studio.engine
+
+import android.content.Context
+import java.io.BufferedReader
+import java.io.File
+import java.io.InputStreamReader
+import java.nio.charset.StandardCharsets
+
+object FfmpegRunner {
+
+    fun run(
+        context: Context,
+        args: List<String>,
+        onOutputLine: ((String) -> Unit)? = null
+    ): Result<Unit> {
+        return try {
+            EngineInitializer.ensureInitialized(context).getOrThrow()
+            val nativeDir = context.applicationInfo.nativeLibraryDir
+            val ffmpegBinary = File(nativeDir, "libffmpeg.so")
+            if (!ffmpegBinary.exists()) {
+                return Result.failure(
+                    IllegalStateException("Native FFmpeg binary missing in $nativeDir")
+                )
+            }
+
+            val command = ArrayList<String>(args.size + 1).apply {
+                add(ffmpegBinary.absolutePath)
+                addAll(args)
+            }
+
+            val pb = ProcessBuilder(command).apply {
+                redirectErrorStream(true)
+                val existingLd = environment()["LD_LIBRARY_PATH"].orEmpty()
+                environment()["LD_LIBRARY_PATH"] = if (existingLd.isBlank()) {
+                    nativeDir
+                } else {
+                    "$nativeDir:$existingLd"
+                }
+            }
+
+            val process = pb.start()
+            val tailLines = ArrayDeque<String>(24)
+
+            BufferedReader(
+                InputStreamReader(process.inputStream, StandardCharsets.UTF_8),
+                32768
+            ).use { reader ->
+                var line: String? = reader.readLine()
+                while (line != null) {
+                    onOutputLine?.invoke(line)
+                    if (tailLines.size >= 24) {
+                        tailLines.removeFirst()
+                    }
+                    tailLines.addLast(line)
+                    line = reader.readLine()
+                }
+            }
+
+            val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                Result.success(Unit)
+            } else {
+                val detail = tailLines.joinToString("\n").takeLast(400)
+                Result.failure(
+                    IllegalStateException("FFmpeg exited with code $exitCode: $detail")
+                )
+            }
+        } catch (t: Throwable) {
+            Result.failure(t)
+        }
+    }
+}
+''',
     )
 
     write_file(
         f"{base}/engine/SubtitleAndChatParser.kt",
-        """
+        r'''
 package com.clippulse.studio.engine
 
 import com.clippulse.studio.model.SuperChatEvent
@@ -1153,10 +1230,6 @@ data class LiveChatParseOutput(
 
 object SubtitleAndChatParser {
 
-    /**
-     * RAM-safe line-by-line streaming parser for YouTube .live_chat.json files (100MB+ safe).
-     * Extracts Super Chats/Stickers and computes 10-second chat velocity buckets in a single pass.
-     */
     fun parseLiveChatStreaming(chatFile: File, durationSec: Double): LiveChatParseOutput {
         if (!chatFile.exists() || chatFile.length() == 0L) {
             return LiveChatParseOutput(emptyList(), emptyList(), 0)
@@ -1410,7 +1483,6 @@ object SubtitleAndChatParser {
             rawCues.add(TranscriptCue(lastStart, lastEnd, lastText))
         }
 
-        // Deduplicate rolling auto-caption lines
         val deduped = mutableListOf<TranscriptCue>()
         for (cue in rawCues) {
             val prev = deduped.lastOrNull()
@@ -1437,12 +1509,12 @@ object SubtitleAndChatParser {
         return matching.joinToString(" ") { it.text }.trim().take(220)
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/engine/VideoAnalysisEngine.kt",
-        """
+        r'''
 package com.clippulse.studio.engine
 
 import android.content.Context
@@ -1457,12 +1529,9 @@ import com.clippulse.studio.model.PaddingPreset
 import com.clippulse.studio.model.SignalSource
 import com.clippulse.studio.model.SuperChatEvent
 import com.clippulse.studio.model.SuperChatThreshold
-import com.clippulse.studio.model.TimeFormatter
 import com.clippulse.studio.model.TranscriptCue
 import com.clippulse.studio.model.VideoAnalysisResult
 import com.clippulse.studio.network.UniversalAiClient
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.ffmpeg.FFmpegExecuteRequest
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import kotlinx.coroutines.Dispatchers
@@ -1527,15 +1596,12 @@ class VideoAnalysisEngine(
                 val heatmap = parseHeatmapFromInfoJson(infoJson)
                 val rawCandidates = mutableListOf<ClipCandidate>()
 
-                // 1. Most Replayed (Heatmap) Detector
                 if (heatmap.isNotEmpty()) {
                     rawCandidates.addAll(detectHeatmapPeaks(heatmap, durationSec))
                 } else {
-                    // Fallback chapter/timestamp detector for Facebook & non-heatmap videos
                     rawCandidates.addAll(detectChaptersAndDescriptionCues(infoJson, durationSec))
                 }
 
-                // 2. Streaming Super Chat + Chat Velocity Detector
                 onProgress(0.58f, "Stream-scanning live chat & Super Chats (RAM-safe)...")
                 val liveChatFile = workDir.listFiles()?.firstOrNull { it.name.endsWith(".live_chat.json") }
                 var allSuperChats = emptyList<SuperChatEvent>()
@@ -1563,7 +1629,6 @@ class VideoAnalysisEngine(
                     }
                 }
 
-                // 3. Subtitle / Transcript Parser
                 onProgress(0.70f, "Indexing spoken transcript cues...")
                 val vttFile = workDir.listFiles()?.firstOrNull { it.name.endsWith(".vtt") }
                 val cues = if (vttFile != null) {
@@ -1572,7 +1637,6 @@ class VideoAnalysisEngine(
                     emptyList()
                 }
 
-                // Filter Super Chats by threshold & optionally align reaction with AI
                 val filteredSuperChats = allSuperChats.filter { it.usdApprox >= superChatThreshold.minUsd }
                 val alignedRanges = if (aiConfig.canUseAi() && filteredSuperChats.isNotEmpty() && cues.isNotEmpty()) {
                     onProgress(0.78f, "AI-aligning Super Chat donor reactions...")
@@ -1611,7 +1675,6 @@ class VideoAnalysisEngine(
                     )
                 }
 
-                // 4. AI Viral Picks & Custom Prompt Search
                 if (aiConfig.canUseAi() && cues.isNotEmpty() &&
                     (mode == DetectionMode.SMART_ALL || mode == DetectionMode.AI_CUSTOM)
                 ) {
@@ -1641,7 +1704,6 @@ class VideoAnalysisEngine(
                     }
                 }
 
-                // 5. Filter by DetectionMode & run Multi-Signal Consensus Engine
                 onProgress(0.95f, "Merging multi-signal consensus clips...")
                 val modeFiltered = filterCandidatesByMode(rawCandidates, mode)
                 val consensusClips = runMultiSignalConsensus(
@@ -1700,20 +1762,34 @@ class VideoAnalysisEngine(
             val durationSec = probeVideoDurationSec(stagedFile.absolutePath).coerceAtLeast(1.0)
 
             onProgress(0.50f, "Scanning audio RMS energy spikes with FFmpeg astats...")
-            val request = FFmpegExecuteRequest(
-                listOf(
+            val ptsRegex = Regex("""pts_time:(\d+(?:\.\d+)?)""")
+            val rmsRegex = Regex("""RMS level dB:\s*(-?\d+(?:\.\d+)?)""")
+            val samples = mutableListOf<Pair<Double, Double>>()
+            var latestPts = 0.0
+
+            FfmpegRunner.run(
+                context = context,
+                args = listOf(
                     "-hide_banner",
                     "-i", stagedFile.absolutePath,
                     "-af", "astats=metadata=1:reset=1",
                     "-f", "null",
                     "-"
-                )
+                ),
+                onOutputLine = { line ->
+                    ptsRegex.find(line)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let { pts ->
+                        latestPts = pts
+                    }
+                    rmsRegex.find(line)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let { rmsDb ->
+                        if (rmsDb.isFinite() && rmsDb > -90.0) {
+                            samples.add(latestPts to rmsDb)
+                        }
+                    }
+                }
             )
-            val response = FFmpeg.getInstance().execute(request)
-            val logOutput = "${response.out}\n${response.err}"
 
             onProgress(0.82f, "Building acoustic energy curve & peak clips...")
-            val (heatmap, rawPeaks) = parseAudioRmsPeaks(logOutput, durationSec)
+            val (heatmap, rawPeaks) = buildAudioRmsPeaks(samples, durationSec)
 
             val consensusClips = runMultiSignalConsensus(
                 candidates = rawPeaks,
@@ -1847,29 +1923,11 @@ class VideoAnalysisEngine(
         return results
     }
 
-    private fun parseAudioRmsPeaks(
-        ffmpegStderr: String,
+    private fun buildAudioRmsPeaks(
+        samples: List<Pair<Double, Double>>,
         durationSec: Double
     ): Pair<List<HeatmapPoint>, List<ClipCandidate>> {
-        val ptsRegex = Regex("""pts_time:(\d+(?:\.\d+)?)""")
-        val rmsRegex = Regex("""RMS level dB:\s*(-?\d+(?:\.\d+)?)""")
-
-        val samples = mutableListOf<Pair<Double, Double>>()
-        var latestPts = 0.0
-
-        ffmpegStderr.lineSequence().forEach { line ->
-            ptsRegex.find(line)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let { pts ->
-                latestPts = pts
-            }
-            rmsRegex.find(line)?.groupValues?.getOrNull(1)?.toDoubleOrNull()?.let { rmsDb ->
-                if (rmsDb.isFinite() && rmsDb > -90.0) {
-                    samples.add(latestPts to rmsDb)
-                }
-            }
-        }
-
         if (samples.isEmpty()) {
-            // Fallback evenly-spaced highlight markers if audio track is silent/missing
             val fallbackClip = ClipCandidate(
                 id = UUID.randomUUID().toString(),
                 title = "Opening Highlight",
@@ -1883,7 +1941,6 @@ class VideoAnalysisEngine(
             return emptyList<HeatmapPoint>() to listOf(fallbackClip)
         }
 
-        // Aggregate into 40 buckets for the Canvas Heatmap curve
         val bucketCount = 40
         val bucketSize = (durationSec / bucketCount.toDouble()).coerceAtLeast(1.0)
         val bucketMaxDb = DoubleArray(bucketCount) { -60.0 }
@@ -1966,7 +2023,6 @@ class VideoAnalysisEngine(
 
         for (i in 1 until sorted.size) {
             val next = sorted[i]
-            // Merge overlapping or adjacent clips within 18 seconds
             if (next.startSec - current.endSec <= 18.0) {
                 val combinedSignals = (current.signals + next.signals).distinct()
                 val multiSignal = combinedSignals.size >= 2
@@ -2074,12 +2130,12 @@ class VideoAnalysisEngine(
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/engine/ClipExporter.kt",
-        """
+        r'''
 package com.clippulse.studio.engine
 
 import android.content.ContentValues
@@ -2091,8 +2147,6 @@ import android.provider.MediaStore
 import com.clippulse.studio.model.ClipCandidate
 import com.clippulse.studio.model.ExportMode
 import com.clippulse.studio.model.TimeFormatter
-import com.yausername.ffmpeg.FFmpeg
-import com.yausername.ffmpeg.FFmpegExecuteRequest
 import com.yausername.youtubedl_android.YoutubeDL
 import com.yausername.youtubedl_android.YoutubeDLRequest
 import java.io.File
@@ -2156,7 +2210,7 @@ object ClipExporter {
                             finalMp4File.absolutePath
                         )
                     }
-                    FFmpeg.getInstance().execute(FFmpegExecuteRequest(ffmpegArgs))
+                    FfmpegRunner.run(context, ffmpegArgs).getOrThrow()
                 } else {
                     val startTs = TimeFormatter.formatSectionTimestamp(clip.startSec)
                     val endTs = TimeFormatter.formatSectionTimestamp(clip.endSec)
@@ -2192,7 +2246,7 @@ object ClipExporter {
                             "-movflags", "+faststart",
                             finalMp4File.absolutePath
                         )
-                        FFmpeg.getInstance().execute(FFmpegExecuteRequest(cropArgs))
+                        FfmpegRunner.run(context, cropArgs).getOrThrow()
                     } else {
                         val remuxArgs = listOf(
                             "-y",
@@ -2201,7 +2255,7 @@ object ClipExporter {
                             "-movflags", "+faststart",
                             finalMp4File.absolutePath
                         )
-                        FFmpeg.getInstance().execute(FFmpegExecuteRequest(remuxArgs))
+                        FfmpegRunner.run(context, remuxArgs).getOrThrow()
                     }
                 }
 
@@ -2329,12 +2383,12 @@ object ClipExporter {
         return raw.replace(Regex("""[^a-zA-Z0-9._-]+"""), "_").trim('_')
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/service/ClipExportService.kt",
-        """
+        r'''
 package com.clippulse.studio.service
 
 import android.app.Service
@@ -2565,12 +2619,12 @@ class ClipExportService : Service() {
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/viewmodel/ClipPulseViewModel.kt",
-        """
+        r'''
 package com.clippulse.studio.viewmodel
 
 import android.app.Application
@@ -2583,7 +2637,6 @@ import com.clippulse.studio.engine.VideoAnalysisEngine
 import com.clippulse.studio.model.AiConfig
 import com.clippulse.studio.model.AiConnectionState
 import com.clippulse.studio.model.AiPreset
-import com.clippulse.studio.model.ClipCandidate
 import com.clippulse.studio.model.DetectionMode
 import com.clippulse.studio.model.ExportJobState
 import com.clippulse.studio.model.ExportMode
@@ -2882,8 +2935,6 @@ class ClipPulseViewModel(application: Application) : AndroidViewModel(applicatio
         ExportProgressBus.reset()
     }
 
-    // --- Universal AI API Manager Controls ---
-
     fun setAiSheetOpen(open: Boolean) {
         _uiState.update { it.copy(isAiSheetOpen = open) }
     }
@@ -3019,12 +3070,12 @@ class ClipPulseViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/ui/theme/Theme.kt",
-        """
+        r'''
 package com.clippulse.studio.ui.theme
 
 import androidx.compose.material3.MaterialTheme
@@ -3076,12 +3127,12 @@ fun ClipPulseTheme(content: @Composable () -> Unit) {
         content = content
     )
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/ui/components/ClipPulseLogo.kt",
-        """
+        r'''
 package com.clippulse.studio.ui.components
 
 import androidx.compose.foundation.Canvas
@@ -3148,12 +3199,12 @@ fun ClipPulseLogo(modifier: Modifier = Modifier.size(34.dp)) {
         )
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/ui/components/InteractiveHeatmapTimeline.kt",
-        """
+        r'''
 package com.clippulse.studio.ui.components
 
 import androidx.compose.foundation.BorderStroke
@@ -3255,13 +3306,11 @@ fun InteractiveHeatmapTimeline(
                 val w = size.width
                 val h = size.height
 
-                // Base track background
                 drawRoundRect(
                     color = ElevatedSlate,
                     size = Size(w, h)
                 )
 
-                // Horizontal guide lines
                 for (row in 1..2) {
                     val y = h * (row / 3f)
                     drawLine(
@@ -3272,7 +3321,6 @@ fun InteractiveHeatmapTimeline(
                     )
                 }
 
-                // Plot heatmap gradient curve
                 if (heatmap.size >= 2) {
                     val linePath = Path()
                     val fillPath = Path()
@@ -3317,7 +3365,6 @@ fun InteractiveHeatmapTimeline(
                     )
                 }
 
-                // Plot clip range highlights and vertical markers
                 for (clip in clips) {
                     val startX = ((clip.startSec / safeDuration).toFloat().coerceIn(0f, 1f)) * w
                     val endX = ((clip.endSec / safeDuration).toFloat().coerceIn(0f, 1f)) * w
@@ -3368,12 +3415,12 @@ fun InteractiveHeatmapTimeline(
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/ui/components/ClipPreviewPlayer.kt",
-        """
+        r'''
 package com.clippulse.studio.ui.components
 
 import android.net.Uri
@@ -3529,12 +3576,12 @@ fun ClipPreviewPlayer(
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/ui/components/ClipCard.kt",
-        """
+        r'''
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.clippulse.studio.ui.components
@@ -3720,7 +3767,6 @@ fun ClipCard(
                 }
             }
 
-            // Super Chat Donor Highlight Card
             clip.superChat?.let { sc ->
                 Spacer(modifier = Modifier.height(8.dp))
                 Surface(
@@ -3759,7 +3805,6 @@ fun ClipCard(
                 }
             }
 
-            // Transcript Quote
             if (clip.transcriptQuote.isNotBlank()) {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
@@ -3772,7 +3817,6 @@ fun ClipCard(
                 )
             }
 
-            // Expandable Precision Trim & Inline Media3 Preview
             AnimatedVisibility(visible = isExpanded) {
                 Column(modifier = Modifier.padding(top = 10.dp)) {
                     HorizontalDivider(color = HairlineBorder)
@@ -3796,7 +3840,6 @@ fun ClipCard(
                         Spacer(modifier = Modifier.height(10.dp))
                     }
 
-                    // Precision Trim Nudge Controls (-2s / +2s Start & End)
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         color = ElevatedSlate,
@@ -3890,12 +3933,12 @@ private fun NudgeChipButton(label: String, onClick: () -> Unit) {
         )
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/ui/components/AiManagerSheet.kt",
-        """
+        r'''
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.clippulse.studio.ui.components
@@ -3937,6 +3980,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -4026,7 +4070,6 @@ fun AiManagerSheet(
                 fontSize = 12.sp
             )
 
-            // 1-Tap Provider Presets
             FlowRow(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
@@ -4046,7 +4089,6 @@ fun AiManagerSheet(
                 }
             }
 
-            // Base URL Input + Normalized Preview
             OutlinedTextField(
                 value = config.baseUrl,
                 onValueChange = onUpdateBaseUrl,
@@ -4060,7 +4102,6 @@ fun AiManagerSheet(
                 fontSize = 11.sp
             )
 
-            // Primary API Key Input
             OutlinedTextField(
                 value = config.primaryKey,
                 onValueChange = onUpdatePrimaryKey,
@@ -4083,7 +4124,6 @@ fun AiManagerSheet(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            // Backup Failover Keys
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 color = ElevatedSlate,
@@ -4164,7 +4204,6 @@ fun AiManagerSheet(
                 }
             }
 
-            // Dynamic Model Dropdown + Fetch Models Button
             ExposedDropdownMenuBox(
                 expanded = modelDropdownExpanded,
                 onExpandedChange = { modelDropdownExpanded = !modelDropdownExpanded }
@@ -4181,7 +4220,7 @@ fun AiManagerSheet(
                         ExposedDropdownMenuDefaults.TrailingIcon(expanded = modelDropdownExpanded)
                     },
                     modifier = Modifier
-                        .menuAnchor()
+                        .menuAnchor(MenuAnchorType.PrimaryEditable, enabled = true)
                         .fillMaxWidth()
                 )
 
@@ -4322,7 +4361,6 @@ fun AiManagerSheet(
 
             HorizontalDivider(color = HairlineBorder)
 
-            // Token Optimization & Offline Toggles
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -4375,7 +4413,6 @@ fun AiManagerSheet(
 
             HorizontalDivider(color = HairlineBorder)
 
-            // 1-Tap yt-dlp Engine Updater
             OutlinedButton(
                 onClick = onUpdateYtDlp,
                 enabled = !isUpdatingYtDlp,
@@ -4407,12 +4444,12 @@ fun AiManagerSheet(
         }
     }
 }
-""",
+''',
     )
 
     write_file(
         f"{base}/ui/ClipPulseStudioScreen.kt",
-        """
+        r'''
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
 package com.clippulse.studio.ui
@@ -4559,7 +4596,6 @@ fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Source Input & Detection Controls Card
             item {
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
@@ -4634,7 +4670,6 @@ fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
                             }
                         }
 
-                        // Horizontal Detection Mode Pills
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -4656,7 +4691,6 @@ fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
                             }
                         }
 
-                        // Optional Custom AI Prompt Box
                         if (state.detectionMode == DetectionMode.AI_CUSTOM || state.detectionMode == DetectionMode.SMART_ALL) {
                             OutlinedTextField(
                                 value = state.customAiPrompt,
@@ -4672,7 +4706,6 @@ fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
                             )
                         }
 
-                        // Super Chat Minimum Threshold Chips
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -4700,7 +4733,6 @@ fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
                             }
                         }
 
-                        // Start / End Padding Chips
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -4781,7 +4813,6 @@ fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
                 }
             }
 
-            // Analysis Results: Video Header, Interactive Heatmap Timeline & Filter Controls
             if (analysisResult != null) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -4817,7 +4848,6 @@ fun ClipPulseStudioScreen(viewModel: ClipPulseViewModel) {
                             onJumpToTime = viewModel::focusClipAtTime
                         )
 
-                        // Signal Filter Chips + Select All / Clear
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -4950,7 +4980,6 @@ private fun StudioTopBar(
                 }
             }
 
-            // Top-right live AI status pill
             val (pillText, pillColor) = when {
                 aiConfig.offlineNoAiMode -> "Offline Mode" to TextSecondary
                 connectionState is AiConnectionState.Connected -> "\u2713 ${connectionState.latencyMs}ms" to ColorEmerald
@@ -5121,7 +5150,7 @@ private fun StickyExportDock(
         }
     }
 }
-""",
+''',
     )
 
 
@@ -5136,3 +5165,4 @@ def main() -> None:
 if __name__ == "__main__":
     main()
     sys.exit(0)
+
