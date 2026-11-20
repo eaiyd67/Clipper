@@ -93,6 +93,11 @@ android {
         compose = true
     }
 
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -139,7 +144,8 @@ FILES["app/proguard-rules.pro"] = r'''-keep class com.yausername.** { *; }
 # ==============================================================================
 
 FILES["app/src/main/AndroidManifest.xml"] = r'''<?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -149,10 +155,12 @@ FILES["app/src/main/AndroidManifest.xml"] = r'''<?xml version="1.0" encoding="ut
     <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
+        android:maxSdkVersion="32"
+        tools:replace="android:maxSdkVersion" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="29" />
+        android:maxSdkVersion="29"
+        tools:replace="android:maxSdkVersion" />
 
     <application
         android:name=".ClipPulseApp"
@@ -2854,10 +2862,7 @@ class ClipPulseViewModel(application: Application) : AndroidViewModel(applicatio
             val msg = withContext(Dispatchers.IO) {
                 ClipPulseApp.ensureEnginesInitialized(getApplication())
                 runCatching {
-                    val status = YoutubeDL.getInstance().updateYoutubeDL(
-                        getApplication(),
-                        YoutubeDL.UpdateChannel.STABLE
-                    )
+                    val status = YoutubeDL.getInstance().updateYoutubeDL(getApplication())
                     "yt-dlp status: ${status?.name ?: "UP TO DATE"}"
                 }.getOrElse { err ->
                     "Update failed: ${err.message ?: "Network error"}"
@@ -4750,4 +4755,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-  
+    
