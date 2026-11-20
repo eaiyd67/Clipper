@@ -156,11 +156,11 @@ FILES["app/src/main/AndroidManifest.xml"] = r'''<?xml version="1.0" encoding="ut
     <uses-permission
         android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32"
-        tools:replace="android:maxSdkVersion" />
+        tools:node="replace" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29"
-        tools:replace="android:maxSdkVersion" />
+        tools:node="replace" />
 
     <application
         android:name=".ClipPulseApp"
@@ -4755,4 +4755,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
