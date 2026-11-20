@@ -34,7 +34,14 @@ jobs:
           gradle-version: '8.9'
 
       - name: Assemble Debug APK
-        run: gradle assembleDebug --no-daemon --stacktrace
+        shell: bash
+        run: |
+          set -o pipefail
+          if ! gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle_build.log; then
+            echo "================ EXACT BUILD ERROR ================"
+            grep -E "^e: |FAILURE:|What went wrong:|Execution failed for task|AAPT:|Manifest merger failed" -A 8 gradle_build.log || tail -n 60 gradle_build.log
+            exit 1
+          fi
 
       - name: Upload ClipPulse APK Artifact
         uses: actions/upload-artifact@v4
