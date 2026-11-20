@@ -1503,7 +1503,7 @@ object ChatAndSubtitleParser {
         val threshold = mean + 1.8 * stdDev
 
         val topBuckets = bucketCounts.entries
-            .filter { it.value >= threshold && it.value >= 4 }
+            .filter { it.value.toDouble() >= threshold && it.value >= 4 }
             .sortedByDescending { it.value }
 
         val clips = mutableListOf<ClipCandidate>()
@@ -2854,7 +2854,10 @@ class ClipPulseViewModel(application: Application) : AndroidViewModel(applicatio
             val msg = withContext(Dispatchers.IO) {
                 ClipPulseApp.ensureEnginesInitialized(getApplication())
                 runCatching {
-                    val status = YoutubeDL.getInstance().updateYoutubeDL(getApplication())
+                    val status = YoutubeDL.getInstance().updateYoutubeDL(
+                        getApplication(),
+                        YoutubeDL.UpdateChannel.STABLE
+                    )
                     "yt-dlp status: ${status?.name ?: "UP TO DATE"}"
                 }.getOrElse { err ->
                     "Update failed: ${err.message ?: "Network error"}"
@@ -4735,7 +4738,6 @@ def main():
         created_count += 1
         print(f"[OK] Generated {rel_path}")
 
-    # Automatically link GitHub Actions pre-installed ANDROID_HOME into local.properties
     sdk_dir = os.environ.get("ANDROID_HOME") or os.environ.get("ANDROID_SDK_ROOT")
     if sdk_dir and os.path.isdir(sdk_dir):
         escaped_sdk = sdk_dir.replace("\\", "\\\\")
@@ -4748,3 +4750,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+  
