@@ -1,4 +1,4 @@
-name: Build ClipPulse APK
+name: Build ClipPulse Debug APK
 
 on:
   push:
@@ -8,15 +8,15 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-apk:
-    name: Generate & Compile Debug APK
+  build:
+    name: Assemble Debug APK
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Set Up Temurin JDK 17
+      - name: Set up JDK 17 (Temurin)
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
@@ -25,25 +25,24 @@ jobs:
       - name: Accept Android SDK Licenses
         run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null 2>&1 || true
 
-      - name: Generate Android Project via Python
+      - name: Generate ClipPulse Android Project
         run: python3 build_project.py
 
-      - name: Set Up Gradle 8.9
+      - name: Setup Gradle 8.9
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
-      - name: Assemble Debug APK
-        shell: bash
+      - name: Build Debug APK
         run: |
           set -o pipefail
-          if ! gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee gradle_build.log; then
-            echo "================ EXACT BUILD ERROR ================"
-            grep -E "^e: |FAILURE:|What went wrong:|Execution failed for task|AAPT:|Manifest merger failed" -A 8 gradle_build.log || tail -n 60 gradle_build.log
+          gradle assembleDebug --no-daemon --stacktrace 2>&1 | tee build.log || {
+            echo "==================== BUILD FAILURE SUMMARY ===================="
+            grep -E "(^e: |FAILURE:|What went wrong:|Execution failed|Unresolved reference|Manifest merger failed)" build.log | head -n 60
             exit 1
-          fi
+          }
 
-      - name: Upload ClipPulse APK Artifact
+      - name: Upload ClipPulse Debug APK
         uses: actions/upload-artifact@v4
         with:
           name: ClipPulse-debug-apk
